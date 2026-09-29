@@ -4,7 +4,8 @@ import ExcelJS from "exceljs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "crypto";
+import { Pool } from "pg";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -59,8 +60,55 @@ if (!fs.existsSync(dataFile)) {
   fs.writeFileSync(dataFile, JSON.stringify(seedShipments, null, 2));
 }
 
-const readShipments = () => JSON.parse(fs.readFileSync(dataFile, "utf8"));
-const writeShipments = (data) => fs.writeFileSync(dataFile, JSON.stringify(data, null, 2));
+const pool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL, max: 5 })
+  : null;
+
+async function readShipments() {
+  if (!pool) return JSON.parse(fs.readFileSync(dataFile, "utf8"));
+  const result = await pool.query("SELECT data FROM shipment_records");
+  return result.rows.map(row => row.data);
+}
+
+async function writeShipments(data) {
+  if (!pool) {
+    fs.writeFileSync(dataFile, JSON.stringify(data, null, 2));
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM shipment_records");
+    for (const shipment of data) {
+      await client.query(
+        "INSERT INTO shipment_records (tracking_number, data) VALUES ($1, $2)",
+        [shipment.trackingNumber, JSON.stringify(shipment)]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function initializeStorage() {
+  if (!pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS shipment_records (
+      tracking_number TEXT PRIMARY KEY,
+      data JSONB NOT NULL
+    )
+  `);
+  const existing = await pool.query("SELECT 1 FROM shipment_records LIMIT 1");
+  if (existing.rowCount === 0) {
+    const seeds = JSON.parse(fs.readFileSync(dataFile, "utf8"));
+    await writeShipments(seeds);
+  }
+}
 
 const allowedStatuses = [
   "Shipment Created", "Picked Up", "In Transit", "At Hub",
@@ -147,17 +195,68 @@ function excelCellValue(value) {
 }
 
 const app = express();
-app.use(cors());
+app.set("trust proxy", 1);
+if (process.env.NODE_ENV !== "production") app.use(cors());
 app.use(express.json({ limit: "2mb" }));
+
+const adminPassword = process.env.ADMIN_PASSWORD;
+const adminSessions = new Map();
+const loginAttempts = new Map();
+
+function requireAdmin(req, res, next) {
+  if (process.env.NODE_ENV !== "production") return next();
+  const token = req.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const expiresAt = token && adminSessions.get(token);
+  if (!expiresAt || expiresAt <= Date.now()) {
+    if (token) adminSessions.delete(token);
+    return res.status(401).json({ message: "Admin sign-in required." });
+  }
+  next();
+}
+
+function publicShipment(shipment) {
+  return {
+    trackingNumber: shipment.trackingNumber,
+    origin: shipment.origin,
+    destination: shipment.destination,
+    status: shipment.status,
+    estimatedDelivery: shipment.estimatedDelivery,
+    updatedAt: shipment.updatedAt,
+    history: (shipment.history || []).map(({ status, location, timestamp }) => ({ status, location, timestamp }))
+  };
+}
+
+app.post("/api/auth/login", (req, res) => {
+  if (!adminPassword) return res.status(503).json({ message: "Admin sign-in is not configured." });
+  const key = req.ip;
+  const now = Date.now();
+  let attempt = loginAttempts.get(key);
+  if (!attempt || attempt.expiresAt <= now) {
+    attempt = { count: 0, expiresAt: now + 15 * 60 * 1000 };
+  }
+  if (attempt.count >= 5) return res.status(429).json({ message: "Too many sign-in attempts. Try again later." });
+
+  const candidate = Buffer.from(String(req.body?.password ?? ""));
+  const expected = Buffer.from(adminPassword);
+  if (candidate.length !== expected.length || !timingSafeEqual(candidate, expected)) {
+    loginAttempts.set(key, { ...attempt, count: attempt.count + 1 });
+    return res.status(401).json({ message: "Incorrect admin password." });
+  }
+
+  loginAttempts.delete(key);
+  const token = randomBytes(32).toString("hex");
+  adminSessions.set(token, Date.now() + 8 * 60 * 60 * 1000);
+  res.json({ token });
+});
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
-app.get("/api/shipments", (_req, res) => {
-  const shipments = readShipments().sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+app.get("/api/shipments", requireAdmin, async (_req, res) => {
+  const shipments = (await readShipments()).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   res.json(shipments);
 });
 
-app.get("/api/shipments/template", async (_req, res) => {
+app.get("/api/shipments/template", requireAdmin, async (_req, res) => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("Shipments");
   worksheet.columns = [
@@ -183,7 +282,7 @@ app.get("/api/shipments/template", async (_req, res) => {
   ];
   worksheet.views = [{ state: "frozen", ySplit: 1 }];
 
-  const shipments = readShipments().sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  const shipments = (await readShipments()).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   for (const shipment of shipments) {
     const latestEvent = shipment.history?.[shipment.history.length - 1] || {};
     worksheet.addRow({
@@ -205,15 +304,16 @@ app.get("/api/shipments/template", async (_req, res) => {
   res.send(Buffer.from(buffer));
 });
 
-app.get("/api/shipments/:trackingNumber", (req, res) => {
+app.get("/api/shipments/:trackingNumber", async (req, res) => {
   const tracking = req.params.trackingNumber.toUpperCase();
-  const shipment = readShipments().find(s => s.trackingNumber.toUpperCase() === tracking);
+  const shipment = (await readShipments()).find(s => s.trackingNumber.toUpperCase() === tracking);
   if (!shipment) return res.status(404).json({ message: "Shipment not found." });
-  res.json(shipment);
+  res.json(publicShipment(shipment));
 });
 
 app.post(
   "/api/shipments/import",
+  requireAdmin,
   express.raw({ type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", limit: "10mb" }),
   async (req, res) => {
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
@@ -238,7 +338,7 @@ app.post(
         return res.status(400).json({ message: `Missing required columns: ${missingColumns.join(", ")}.` });
       }
 
-      const shipments = readShipments();
+      const shipments = await readShipments();
       const existingTrackingNumbers = new Set(shipments.map(shipment => shipment.trackingNumber.toUpperCase()));
       const pendingTrackingNumbers = new Set();
       const rows = [];
@@ -307,7 +407,7 @@ app.post(
         const shipment = createShipment(input, [...shipments, ...imported]);
         imported.push(shipment);
       }
-      if (imported.length) writeShipments([...shipments, ...imported]);
+      if (imported.length) await writeShipments([...shipments, ...imported]);
       res.status(imported.length ? 201 : 200).json({ imported: imported.length, skipped, shipments: imported });
     } catch {
       res.status(400).json({ message: "Could not read the workbook. Use a valid .xlsx file." });
@@ -315,7 +415,7 @@ app.post(
   }
 );
 
-app.post("/api/shipments", (req, res) => {
+app.post("/api/shipments", requireAdmin, async (req, res) => {
   const {
     sender, receiver, origin, destination, packageDescription,
     weight, estimatedDelivery, duties, gatepass, shippingLines, container,
@@ -326,7 +426,7 @@ app.post("/api/shipments", (req, res) => {
     return res.status(400).json({ message: "Please complete all required fields." });
   }
 
-  const shipments = readShipments();
+  const shipments = await readShipments();
   if (trackingNumber && shipments.some(shipment => shipment.trackingNumber.toUpperCase() === String(trackingNumber).trim().toUpperCase())) {
     return res.status(409).json({ message: "That tracking number is already in use." });
   }
@@ -347,12 +447,12 @@ app.post("/api/shipments", (req, res) => {
   }, shipments);
 
   shipments.push(shipment);
-  writeShipments(shipments);
+  await writeShipments(shipments);
   res.status(201).json(shipment);
 });
 
-app.patch("/api/shipments/:trackingNumber", (req, res) => {
-  const shipments = readShipments();
+app.patch("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
+  const shipments = await readShipments();
   const index = shipments.findIndex(
     shipment => shipment.trackingNumber.toUpperCase() === req.params.trackingNumber.toUpperCase()
   );
@@ -415,11 +515,11 @@ app.patch("/api/shipments/:trackingNumber", (req, res) => {
     });
   }
 
-  writeShipments(shipments);
+  await writeShipments(shipments);
   res.json(shipment);
 });
 
-app.patch("/api/shipments/:trackingNumber/status", (req, res) => {
+app.patch("/api/shipments/:trackingNumber/status", requireAdmin, async (req, res) => {
   const { status, location, note } = req.body;
   const allowed = ["Shipment Created", "Picked Up", "In Transit", "At Hub", "Out for Delivery", "Delivered", "Delayed", "Cancelled"];
 
@@ -427,7 +527,7 @@ app.patch("/api/shipments/:trackingNumber/status", (req, res) => {
     return res.status(400).json({ message: "Invalid shipment status." });
   }
 
-  const shipments = readShipments();
+  const shipments = await readShipments();
   const index = shipments.findIndex(
     s => s.trackingNumber.toUpperCase() === req.params.trackingNumber.toUpperCase()
   );
@@ -444,12 +544,12 @@ app.patch("/api/shipments/:trackingNumber/status", (req, res) => {
     note: note || `Shipment status updated to ${status}.`
   });
 
-  writeShipments(shipments);
+  await writeShipments(shipments);
   res.json(shipments[index]);
 });
 
-app.delete("/api/shipments/:trackingNumber", (req, res) => {
-  const shipments = readShipments();
+app.delete("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
+  const shipments = await readShipments();
   const filtered = shipments.filter(
     s => s.trackingNumber.toUpperCase() !== req.params.trackingNumber.toUpperCase()
   );
@@ -458,7 +558,7 @@ app.delete("/api/shipments/:trackingNumber", (req, res) => {
     return res.status(404).json({ message: "Shipment not found." });
   }
 
-  writeShipments(filtered);
+  await writeShipments(filtered);
   res.json({ message: "Shipment deleted." });
 });
 
@@ -469,6 +569,15 @@ if (fs.existsSync(distPath)) {
 }
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`JART Shipment Tracker API running on http://localhost:${PORT}`);
+if (process.env.NODE_ENV === "production" && (!adminPassword || !pool)) {
+  throw new Error("Production requires ADMIN_PASSWORD and DATABASE_URL.");
+}
+
+initializeStorage().then(() => {
+  app.listen(PORT, () => {
+    console.log(`JART Shipment Tracker API running on port ${PORT}`);
+  });
+}).catch(error => {
+  console.error("Could not initialize shipment storage:", error);
+  process.exit(1);
 });
