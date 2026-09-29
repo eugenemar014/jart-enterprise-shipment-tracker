@@ -53,6 +53,17 @@ npm start
 Then open:
 http://localhost:4000
 
+## Free hosted deployment
+
+The Render Blueprint in `render.yaml` creates a free Node web service. Free web services sleep when idle, so the first request after inactivity may take longer to load. Render's free Postgres databases expire after 30 days, so use a free external PostgreSQL provider such as Neon for shipment data.
+
+1. Create a PostgreSQL database and copy its connection string (`DATABASE_URL`).
+2. In Render, create a Blueprint from this private GitHub repository.
+3. Set the requested `DATABASE_URL` and a strong `ADMIN_PASSWORD` in Render's environment settings. Never commit either secret.
+4. Deploy. The app initializes its database and imports the sample shipments on first start.
+
+Shipment management requires the admin password. Public tracking responses omit sender, receiver, and internal notes.
+
 ## Important
 
-This starter project is intended for local development. For a production deployment, replace the JSON database with PostgreSQL/MySQL/MongoDB, add authentication and authorization, validate all input on the server, add audit logs, and configure HTTPS.
+For local development, the app uses `server/data/shipments.json`. In production it requires `DATABASE_URL` and `ADMIN_PASSWORD`; the JSON file is not used as hosted storage.
