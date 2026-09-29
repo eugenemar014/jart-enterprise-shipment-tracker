@@ -6,6 +6,34 @@ import {
 } from "lucide-react";
 
 const API = "/api";
+const ADMIN_SESSION_KEY = "jart-admin-session";
+
+async function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const token = sessionStorage.getItem(ADMIN_SESSION_KEY);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(`${API}${path}`, { ...options, headers });
+}
+
+async function downloadTemplate(event) {
+  event.preventDefault();
+  try {
+    const response = await apiFetch("/shipments/template");
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || "Unable to download the workbook.");
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "jart-shipment-records.xlsx";
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    alert(error.message || "Unable to download the workbook.");
+  }
+}
 
 const STATUS_OPTIONS = [
   "Shipment Created", "Picked Up", "In Transit", "At Hub",
@@ -71,7 +99,7 @@ function CreateShipment({ onClose, onCreated }) {
     setSaving(true);
     setError("");
     try {
-      const response = await fetch(`${API}/shipments`, {
+      const response = await apiFetch("/shipments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form)
@@ -144,7 +172,7 @@ function EditShipmentModal({ shipment, onClose, onUpdated }) {
     setSaving(true);
     setError("");
     try {
-      const response = await fetch(`${API}/shipments/${encodeURIComponent(shipment.trackingNumber)}`, {
+      const response = await apiFetch(`/shipments/${encodeURIComponent(shipment.trackingNumber)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, location, note })
@@ -202,7 +230,7 @@ function ExcelImport({ onClose, onImported }) {
     setSaving(true);
     setError("");
     try {
-      const response = await fetch(`${API}/shipments/import`, {
+      const response = await apiFetch("/shipments/import", {
         method: "POST",
         headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
         body: file
@@ -231,7 +259,7 @@ function ExcelImport({ onClose, onImported }) {
         </label>
         {file && <div className="selected-file"><FileSpreadsheet size={17}/><span>{file.name}</span></div>}
         <p className="form-hint">Required: Sender, Receiver, Origin, Destination, Estimated Delivery. Download the latest workbook for each batch, keep existing tracking numbers unchanged, and add new shipments on blank rows.</p>
-        <div className="template-download"><a href={`${API}/shipments/template`}><Download size={15}/> Download latest shipment workbook</a></div>
+        <div className="template-download"><a href="#" onClick={downloadTemplate}><Download size={15}/> Download latest shipment workbook</a></div>
         {error && <div className="error-box">{error}</div>}
         <div className="modal-actions">
           <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
@@ -267,16 +295,7 @@ function TrackingResult({ shipment, onClose }) {
       </div>
 
       <div className="details-grid">
-        <div><span>Sender</span><strong>{shipment.sender}</strong></div>
-        <div><span>Receiver</span><strong>{shipment.receiver}</strong></div>
-        <div><span>Package</span><strong>{shipment.packageDescription}</strong></div>
-        <div><span>Weight</span><strong>{shipment.weight} kg</strong></div>
         <div><span>Estimated Delivery</span><strong>{shipment.estimatedDelivery}</strong></div>
-        <div><span>Duties</span><strong>{shipment.duties || "—"}</strong></div>
-        <div><span>Gatepass</span><strong>{shipment.gatepass || "—"}</strong></div>
-        <div><span>Shipping Lines</span><strong>{shipment.shippingLines || "—"}</strong></div>
-        <div><span>Container</span><strong>{shipment.container || "—"}</strong></div>
-        <div><span>Bill of Lading</span><strong>{shipment.billOfLading || "—"}</strong></div>
         <div><span>Last Updated</span><strong>{formatDate(shipment.updatedAt)}</strong></div>
       </div>
 
@@ -288,7 +307,7 @@ function TrackingResult({ shipment, onClose }) {
             <div className="timeline-content">
               <div className="timeline-heading"><strong>{item.status}</strong><span>{formatDate(item.timestamp)}</span></div>
               <div className="timeline-location"><MapPin size={14}/> {item.location}</div>
-              <p>{item.note}</p>
+              {item.note && <p>{item.note}</p>}
             </div>
           </div>
         ))}
@@ -375,7 +394,7 @@ function ShipmentSpreadsheetModal({ shipments, onClose }) {
     <Modal title="All Shipments · Spreadsheet View" onClose={onClose} spreadsheet>
       <div className="spreadsheet-toolbar">
         <span>{shipments.length} shipment{shipments.length === 1 ? "" : "s"}</span>
-        <a href={`${API}/shipments/template`}><Download size={15}/> Download Excel workbook</a>
+        <a href="#" onClick={downloadTemplate}><Download size={15}/> Download Excel workbook</a>
       </div>
       <div className="spreadsheet-scroll" role="region" aria-label="All shipment data" tabIndex={0}>
         <table className="spreadsheet-table">
@@ -397,6 +416,46 @@ function ShipmentSpreadsheetModal({ shipments, onClose }) {
   );
 }
 
+function AdminLogin({ onClose, onLogin }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch(`${API}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Unable to sign in.");
+      sessionStorage.setItem(ADMIN_SESSION_KEY, data.token);
+      onLogin();
+    } catch (loginError) {
+      setError(loginError.message || "Unable to sign in.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title="Admin Sign In" onClose={onClose}>
+      <form onSubmit={submit}>
+        <label>Admin password<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /></label>
+        {error && <div className="error-box" role="alert">{error}</div>}
+        <div className="modal-actions">
+          <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+          <button className="button primary" disabled={saving}>{saving ? "Signing in..." : "Sign In"}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function App() {
   const [shipments, setShipments] = useState([]);
   const [query, setQuery] = useState("");
@@ -407,11 +466,23 @@ function App() {
   const [activeFilter, setActiveFilter] = useState("All");
   const [mobileNav, setMobileNav] = useState(false);
   const [importMessage, setImportMessage] = useState("");
+  const [adminAuthenticated, setAdminAuthenticated] = useState(
+    () => import.meta.env.DEV || Boolean(sessionStorage.getItem(ADMIN_SESSION_KEY))
+  );
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
 
   async function loadShipments() {
+    if (!adminAuthenticated) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API}/shipments`);
+      const res = await apiFetch("/shipments");
+      if (res.status === 401) {
+        sessionStorage.removeItem(ADMIN_SESSION_KEY);
+        setAdminAuthenticated(false);
+        setShipments([]);
+        return;
+      }
+      if (!res.ok) throw new Error("Unable to load shipments.");
       setShipments(await res.json());
     } catch {
       alert("Cannot connect to the server. Make sure the backend is running.");
@@ -420,13 +491,13 @@ function App() {
     }
   }
 
-  useEffect(() => { loadShipments(); }, []);
+  useEffect(() => { if (adminAuthenticated) loadShipments(); }, [adminAuthenticated]);
 
   async function track(e) {
     e.preventDefault();
     if (!trackQuery.trim()) return;
     try {
-      const res = await fetch(`${API}/shipments/${encodeURIComponent(trackQuery.trim())}`);
+      const res = await apiFetch(`/shipments/${encodeURIComponent(trackQuery.trim())}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
       setTracking(data);
@@ -438,7 +509,7 @@ function App() {
 
   async function deleteShipment(shipment) {
     if (!confirm(`Delete ${shipment.trackingNumber}?`)) return;
-    const res = await fetch(`${API}/shipments/${shipment.trackingNumber}`, { method: "DELETE" });
+    const res = await apiFetch(`/shipments/${shipment.trackingNumber}`, { method: "DELETE" });
     if (res.ok) {
       setShipments(prev => prev.filter(s => s.trackingNumber !== shipment.trackingNumber));
       if (tracking?.trackingNumber === shipment.trackingNumber) setTracking(null);
@@ -492,7 +563,7 @@ function App() {
         </div>
         <nav>
           <button className="nav-item active"><LayoutDashboard size={18}/> Dashboard</button>
-          <button className="nav-item" onClick={() => document.getElementById("shipments")?.scrollIntoView()}><Package size={18}/> Shipments</button>
+          {adminAuthenticated && <button className="nav-item" onClick={() => document.getElementById("shipments")?.scrollIntoView()}><Package size={18}/> Shipments</button>}
           <button className="nav-item" onClick={() => document.getElementById("tracking")?.scrollIntoView()}><Search size={18}/> Track Shipment</button>
         </nav>
         <div className="sidebar-footer">
@@ -506,9 +577,12 @@ function App() {
           <button className="mobile-menu" onClick={() => setMobileNav(!mobileNav)}><Menu/></button>
           <div><div className="eyebrow">LOGISTICS MANAGEMENT</div><h1>Shipment Dashboard</h1></div>
           <div className="top-actions">
-            <button className="button secondary refresh" onClick={loadShipments}><RefreshCw size={16}/> Refresh</button>
-            <button className="button secondary excel-import" title="Import shipments from Excel" aria-label="Import shipments from Excel" onClick={() => setModal("import")}><FileSpreadsheet size={16}/><span>Excel Import</span></button>
-            <button className="button primary" onClick={() => setModal("create")}><Plus size={17}/> New Shipment</button>
+            {adminAuthenticated ? <>
+              <button className="button secondary refresh" onClick={loadShipments}><RefreshCw size={16}/> Refresh</button>
+              <button className="button secondary excel-import" title="Import shipments from Excel" aria-label="Import shipments from Excel" onClick={() => setModal("import")}><FileSpreadsheet size={16}/><span>Excel Import</span></button>
+              <button className="button primary" onClick={() => setModal("create")}><Plus size={17}/> New Shipment</button>
+              {!import.meta.env.DEV && <button className="button secondary" onClick={() => { sessionStorage.removeItem(ADMIN_SESSION_KEY); setAdminAuthenticated(false); setShipments([]); setTracking(null); }}>Sign Out</button>}
+            </> : <button className="button secondary" onClick={() => setShowAdminLogin(true)}>Admin Sign In</button>}
           </div>
         </header>
 
@@ -521,13 +595,13 @@ function App() {
           <div className="hero-art"><Box size={82} strokeWidth={1}/></div>
         </section>
 
-        <section className="stats">
+        {adminAuthenticated && <section className="stats">
           <StatCard icon={<Package/>} label="Total Shipments" value={counts.all} onClick={() => setActiveFilter("All")}/>
           <StatCard icon={<Truck/>} label="In Transit" value={counts.transit} onClick={() => setActiveFilter("In Transit")}/>
           <StatCard icon={<CheckCircle2/>} label="Delivered" value={counts.delivered} onClick={() => setActiveFilter("Delivered")}/>
           <StatCard icon={<Clock3/>} label="Pending" value={counts.pending} onClick={() => setActiveFilter("Shipment Created")}/>
           <StatCard icon={<AlertTriangle/>} label="Delayed" value={counts.delayed} onClick={() => setActiveFilter("Delayed")}/>
-        </section>
+        </section>}
 
         <section id="tracking" className="tracking-search">
           <div>
@@ -544,7 +618,7 @@ function App() {
 
         {tracking && <TrackingResult shipment={tracking} onClose={() => setTracking(null)}/>}
 
-        <section id="shipments" className="table-section">
+        {adminAuthenticated && <section id="shipments" className="table-section">
           {importMessage && <div className="import-result" role="status"><span>{importMessage}</span><button className="icon-button" aria-label="Dismiss import summary" onClick={() => setImportMessage("")}><X size={16}/></button></div>}
           <div className="section-header">
             <div><div className="eyebrow">SHIPMENT MANAGEMENT</div><h2>All Shipments</h2></div>
@@ -589,7 +663,7 @@ function App() {
               </tbody>
             </table>
           </div>}
-        </section>
+        </section>}
 
         <footer>© {new Date().getFullYear()} JART ENTERPRISE · Shipment Management System</footer>
       </main>
@@ -599,6 +673,7 @@ function App() {
       {modal?.type === "spreadsheet" && <ShipmentSpreadsheetModal shipments={shipments} onClose={() => setModal(null)}/>}
       {modal?.type === "edit" && <EditShipmentModal shipment={modal.shipment} onClose={() => setModal(null)} onUpdated={updated}/>}
       {modal === "import" && <ExcelImport onClose={() => setModal(null)} onImported={imported}/>}
+      {showAdminLogin && <AdminLogin onClose={() => setShowAdminLogin(false)} onLogin={() => { setAdminAuthenticated(true); setShowAdminLogin(false); }}/>}
     </div>
   );
 }
