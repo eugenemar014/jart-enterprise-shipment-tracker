@@ -87,7 +87,7 @@ function CreateShipment({ onClose, onCreated }) {
     sender: "", receiver: "", origin: "", destination: "",
     packageDescription: "", weight: "", estimatedDelivery: "",
     duties: "", gatepass: "", shippingLines: "", container: "",
-    billOfLading: "", trackingNumber: ""
+    billOfLading: "", trackingNumber: "", contractNumber: "", clientName: ""
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -119,8 +119,10 @@ function CreateShipment({ onClose, onCreated }) {
     <Modal title="Create New Shipment" onClose={onClose}>
       <form onSubmit={submit}>
         <div className="form-grid">
-          <label>Sender *<input name="sender" value={form.sender} onChange={update} required placeholder="Sender name/company" /></label>
-          <label>Receiver *<input name="receiver" value={form.receiver} onChange={update} required placeholder="Receiver name/company" /></label>
+          <label>Shipper *<input name="sender" value={form.sender} onChange={update} required placeholder="Shipper name/company" /></label>
+          <label>Consignee *<input name="receiver" value={form.receiver} onChange={update} required placeholder="Consignee name/company" /></label>
+          <label>Contract Number<input name="contractNumber" value={form.contractNumber} onChange={update} /></label>
+          <label>Client Name<input name="clientName" value={form.clientName} onChange={update} /></label>
           <label>Origin *<input name="origin" value={form.origin} onChange={update} required placeholder="e.g. Manila Warehouse" /></label>
           <label>Destination *<input name="destination" value={form.destination} onChange={update} required placeholder="e.g. Cebu City" /></label>
           <label>Package Description<input name="packageDescription" value={form.packageDescription} onChange={update} placeholder="Documents, equipment, cargo..." /></label>
@@ -158,6 +160,8 @@ function EditShipmentModal({ shipment, onClose, onUpdated }) {
     shippingLines: shipment.shippingLines || "",
     container: shipment.container || "",
     billOfLading: shipment.billOfLading || "",
+    contractNumber: shipment.contractNumber || "",
+    clientName: shipment.clientName || "",
     status: shipment.status
   });
   const [location, setLocation] = useState("");
@@ -194,8 +198,10 @@ function EditShipmentModal({ shipment, onClose, onUpdated }) {
         <div className="form-grid">
           <label>Tracking Number *<input name="trackingNumber" value={form.trackingNumber} onChange={update} required /></label>
           <label>Status<select name="status" value={form.status} onChange={update}>{STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}</select></label>
-          <label>Sender *<input name="sender" value={form.sender} onChange={update} required /></label>
-          <label>Receiver *<input name="receiver" value={form.receiver} onChange={update} required /></label>
+          <label>Shipper *<input name="sender" value={form.sender} onChange={update} required /></label>
+          <label>Consignee *<input name="receiver" value={form.receiver} onChange={update} required /></label>
+          <label>Contract Number<input name="contractNumber" value={form.contractNumber} onChange={update} /></label>
+          <label>Client Name<input name="clientName" value={form.clientName} onChange={update} /></label>
           <label>Origin *<input name="origin" value={form.origin} onChange={update} required /></label>
           <label>Destination *<input name="destination" value={form.destination} onChange={update} required /></label>
           <label>Package Description<input name="packageDescription" value={form.packageDescription} onChange={update} /></label>
@@ -258,7 +264,7 @@ function ExcelImport({ onClose, onImported }) {
           />
         </label>
         {file && <div className="selected-file"><FileSpreadsheet size={17}/><span>{file.name}</span></div>}
-        <p className="form-hint">Required: Sender, Receiver, Origin, Destination, Estimated Delivery. Download the latest workbook for each batch, keep existing tracking numbers unchanged, and add new shipments on blank rows.</p>
+        <p className="form-hint">Required: Shipper, Consignee, Origin, Destination, Estimated Delivery. Download the latest workbook for each batch, keep existing PRO numbers unchanged, and add new shipments on blank rows.</p>
         <div className="template-download"><a href="#" onClick={downloadTemplate}><Download size={15}/> Download latest shipment workbook</a></div>
         {error && <div className="error-box">{error}</div>}
         <div className="modal-actions">
@@ -318,10 +324,12 @@ function TrackingResult({ shipment, onClose }) {
 
 function ShipmentViewModal({ shipment, onClose }) {
   const fields = [
-    ["Tracking Number", shipment.trackingNumber],
+    ["PRO", shipment.trackingNumber],
     ["Status", shipment.status],
-    ["Sender", shipment.sender],
-    ["Receiver", shipment.receiver],
+    ["Shipper", shipment.sender],
+    ["Consignee", shipment.receiver],
+    ["Contract Number", shipment.contractNumber],
+    ["Client Name", shipment.clientName],
     ["Origin", shipment.origin],
     ["Destination", shipment.destination],
     ["Package Description", shipment.packageDescription],
@@ -366,9 +374,11 @@ function ShipmentViewModal({ shipment, onClose }) {
 
 function ShipmentSpreadsheetModal({ shipments, onClose }) {
   const columns = [
-    ["Tracking Number", shipment => shipment.trackingNumber],
-    ["Sender", shipment => shipment.sender],
-    ["Receiver", shipment => shipment.receiver],
+    ["PRO", shipment => shipment.trackingNumber],
+    ["Shipper", shipment => shipment.sender],
+    ["Consignee", shipment => shipment.receiver],
+    ["Contract Number", shipment => shipment.contractNumber],
+    ["Client Name", shipment => shipment.clientName],
     ["Origin", shipment => shipment.origin],
     ["Destination", shipment => shipment.destination],
     ["Package Description", shipment => shipment.packageDescription],
@@ -532,7 +542,7 @@ function App() {
 
     const q = query.toLowerCase();
     const matchesSearch = !q || [
-      s.trackingNumber, s.sender, s.receiver, s.origin, s.destination, s.status,
+      s.trackingNumber, s.sender, s.receiver, s.contractNumber, s.clientName, s.origin, s.destination, s.status,
       s.duties, s.gatepass, s.shippingLines, s.container, s.billOfLading
     ].some(v => String(v).toLowerCase().includes(q));
 
@@ -635,13 +645,16 @@ function App() {
           filtered.length === 0 ? <div className="empty"><XCircle/><p>No shipments match your search.</p></div> :
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Tracking</th><th>Route</th><th>Receiver</th><th>Container</th><th>Bill of Lading</th><th>Shipping Lines</th><th>Duties</th><th>Gatepass</th><th>Delivery</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+              <thead><tr><th>PRO</th><th>Shipper</th><th>Route</th><th>Consignee</th><th>Contract Number</th><th>Client Name</th><th>Container</th><th>Bill of Lading</th><th>Shipping Lines</th><th>Duties</th><th>Gatepass</th><th>Delivery</th><th>Status</th><th>Updated</th><th></th></tr></thead>
               <tbody>
                 {filtered.map(s => (
                   <tr key={s.id}>
                     <td><button className="tracking-link" onClick={() => setTracking(s)}>{s.trackingNumber}</button><small>{s.packageDescription}</small></td>
+                    <td>{s.sender || "—"}</td>
                     <td><div className="route-cell"><span>{s.origin}</span><ArrowRight size={14}/><span>{s.destination}</span></div></td>
-                    <td>{s.receiver}</td>
+                    <td>{s.receiver || "—"}</td>
+                    <td>{s.contractNumber || "—"}</td>
+                    <td>{s.clientName || "—"}</td>
                     <td>{s.container || "—"}</td>
                     <td>{s.billOfLading || "—"}</td>
                     <td>{s.shippingLines || "—"}</td>

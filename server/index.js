@@ -133,6 +133,8 @@ function createShipment(input, shipments) {
     trackingNumber,
     sender: input.sender,
     receiver: input.receiver,
+    contractNumber: input.contractNumber || "",
+    clientName: input.clientName || "",
     origin: input.origin,
     destination: input.destination,
     packageDescription: input.packageDescription || "General Cargo",
@@ -260,9 +262,11 @@ app.get("/api/shipments/template", requireAdmin, async (_req, res) => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("Shipments");
   worksheet.columns = [
-    { header: "Tracking Number", key: "trackingNumber", width: 22 },
-    { header: "Sender", key: "sender", width: 24 },
-    { header: "Receiver", key: "receiver", width: 24 },
+    { header: "PRO", key: "trackingNumber", width: 22 },
+    { header: "Shipper", key: "sender", width: 24 },
+    { header: "Consignee", key: "receiver", width: 24 },
+    { header: "Contract Number", key: "contractNumber", width: 24 },
+    { header: "Client Name", key: "clientName", width: 24 },
     { header: "Origin", key: "origin", width: 28 },
     { header: "Destination", key: "destination", width: 28 },
     { header: "Package Description", key: "packageDescription", width: 30 },
@@ -332,8 +336,9 @@ app.post(
         if (key) columns.set(key, columnNumber);
       });
 
-      const requiredColumns = ["sender", "receiver", "origin", "destination", "estimateddelivery"];
-      const missingColumns = requiredColumns.filter(column => !columns.has(column));
+      const missingColumns = ["origin", "destination", "estimateddelivery"].filter(column => !columns.has(column));
+      if (!columns.has("shipper") && !columns.has("sender")) missingColumns.unshift("shipper");
+      if (!columns.has("consignee") && !columns.has("receiver")) missingColumns.unshift("consignee");
       if (missingColumns.length) {
         return res.status(400).json({ message: `Missing required columns: ${missingColumns.join(", ")}.` });
       }
@@ -352,7 +357,7 @@ app.post(
         const values = [...columns.values()].map(columnNumber => row.getCell(columnNumber).value);
         if (values.every(value => value === null || value === undefined || String(value).trim() === "")) continue;
 
-        const trackingNumber = String(getValue("trackingnumber") ?? "").trim();
+        const trackingNumber = String(getValue("pro") ?? getValue("trackingnumber") ?? "").trim();
         if (trackingNumber) {
           if (existingTrackingNumbers.has(trackingNumber.toUpperCase())) {
             skipped += 1;
@@ -366,8 +371,10 @@ app.post(
 
         const input = {
           trackingNumber,
-          sender: String(getValue("sender") ?? "").trim(),
-          receiver: String(getValue("receiver") ?? "").trim(),
+          sender: String(getValue("shipper") ?? getValue("sender") ?? "").trim(),
+          receiver: String(getValue("consignee") ?? getValue("receiver") ?? "").trim(),
+          contractNumber: String(getValue("contractnumber") ?? "").trim(),
+          clientName: String(getValue("clientname") ?? "").trim(),
           origin: String(getValue("origin") ?? "").trim(),
           destination: String(getValue("destination") ?? "").trim(),
           packageDescription: String(getValue("packagedescription") ?? "").trim(),
@@ -419,7 +426,7 @@ app.post("/api/shipments", requireAdmin, async (req, res) => {
   const {
     sender, receiver, origin, destination, packageDescription,
     weight, estimatedDelivery, duties, gatepass, shippingLines, container,
-    billOfLading, trackingNumber
+    billOfLading, trackingNumber, contractNumber, clientName
   } = req.body;
 
   if (!sender || !receiver || !origin || !destination || !estimatedDelivery) {
@@ -443,7 +450,9 @@ app.post("/api/shipments", requireAdmin, async (req, res) => {
     shippingLines,
     container,
     billOfLading,
-    trackingNumber
+    trackingNumber,
+    contractNumber,
+    clientName
   }, shipments);
 
   shipments.push(shipment);
@@ -502,6 +511,8 @@ app.patch("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
     shippingLines: textValue("shippingLines", shipment.shippingLines),
     container: textValue("container", shipment.container),
     billOfLading: textValue("billOfLading", shipment.billOfLading),
+    contractNumber: textValue("contractNumber", shipment.contractNumber),
+    clientName: textValue("clientName", shipment.clientName),
     status,
     updatedAt: new Date().toISOString()
   });
