@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { Pool } from "pg";
+import { SHIPMENT_COLUMNS, getShipmentColumnValue } from "../src/shipmentColumns.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -139,6 +140,10 @@ function createShipment(input, shipments) {
     destination: input.destination,
     packageDescription: input.packageDescription || "General Cargo",
     weight: Number(input.weight) || 0,
+    size: input.size || "",
+    port: input.port || "",
+    original: input.original || "",
+    paid: input.paid || "",
     estimatedDelivery: input.estimatedDelivery,
     duties: input.duties || "",
     gatepass: input.gatepass || "",
@@ -221,6 +226,7 @@ function publicShipment(shipment) {
     trackingNumber: shipment.trackingNumber,
     origin: shipment.origin,
     destination: shipment.destination,
+    port: shipment.port || "",
     status: shipment.status,
     estimatedDelivery: shipment.estimatedDelivery,
     updatedAt: shipment.updatedAt,
@@ -258,54 +264,51 @@ app.get("/api/shipments", requireAdmin, async (_req, res) => {
   res.json(shipments);
 });
 
-app.get("/api/shipments/template", requireAdmin, async (_req, res) => {
+async function createShipmentWorkbook(shipments) {
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Shipments");
-  worksheet.columns = [
-    { header: "PRO", key: "trackingNumber", width: 22 },
-    { header: "Shipper", key: "sender", width: 24 },
-    { header: "Consignee", key: "receiver", width: 24 },
-    { header: "Contract Number", key: "contractNumber", width: 24 },
-    { header: "Client Name", key: "clientName", width: 24 },
-    { header: "Origin", key: "origin", width: 28 },
-    { header: "Destination", key: "destination", width: 28 },
-    { header: "Package Description", key: "packageDescription", width: 30 },
-    { header: "Weight (kg)", key: "weight", width: 14 },
-    { header: "Estimated Delivery", key: "estimatedDelivery", width: 20, style: { numFmt: "yyyy-mm-dd" } },
-    { header: "Status", key: "status", width: 22 },
-    { header: "Current Location", key: "location", width: 28 },
-    { header: "Note", key: "note", width: 36 },
-    { header: "Duties", key: "duties", width: 18 },
-    { header: "Gatepass", key: "gatepass", width: 20 },
-    { header: "Shipping Lines", key: "shippingLines", width: 24 },
-    { header: "Container", key: "container", width: 22 },
-    { header: "Bill of Lading", key: "billOfLading", width: 24 },
-    { header: "Created At", key: "createdAt", width: 26 },
-    { header: "Last Updated", key: "updatedAt", width: 26 },
-    { header: "History (JSON)", key: "historyJson", width: 50 }
-  ];
-  worksheet.views = [{ state: "frozen", ySplit: 1 }];
+  workbook.creator = "JART ENTERPRISE";
+  const worksheet = workbook.addWorksheet("ALL IN");
+  worksheet.columns = SHIPMENT_COLUMNS.map(column => ({
+    header: column.header,
+    key: column.key,
+    width: column.width,
+    style: column.type === "date" ? { numFmt: "yyyy-mm-dd" } :
+      column.type === "dateTime" ? { numFmt: "yyyy-mm-dd hh:mm" } : undefined
+  }));
+  worksheet.views = [{ state: "frozen", xSplit: 2, ySplit: 1 }];
 
-  const shipments = (await readShipments()).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   for (const shipment of shipments) {
-    const latestEvent = shipment.history?.[shipment.history.length - 1] || {};
-    worksheet.addRow({
-      ...shipment,
-      estimatedDelivery: shipment.estimatedDelivery ? new Date(`${shipment.estimatedDelivery}T00:00:00Z`) : "",
-      location: latestEvent.location || "",
-      note: latestEvent.note || "",
-      historyJson: JSON.stringify(shipment.history || [])
-    });
+    const values = Object.fromEntries(SHIPMENT_COLUMNS.map(column => {
+      let value = getShipmentColumnValue(shipment, column);
+      if (column.type && value) {
+        const date = new Date(value);
+        value = Number.isNaN(date.getTime()) ? String(value) : date;
+      }
+      return [column.key, value];
+    }));
+    worksheet.addRow(values);
   }
-  worksheet.addRow(Array(worksheet.columns.length).fill(""));
-  worksheet.autoFilter = `A1:${worksheet.getColumn(worksheet.columns.length).letter}${worksheet.rowCount}`;
+
+  worksheet.autoFilter = `A1:${worksheet.getColumn(worksheet.columns.length).letter}${Math.max(1, worksheet.rowCount)}`;
   worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
   worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF047857" } };
+  worksheet.getRow(1).height = 24;
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
 
-  const buffer = await workbook.xlsx.writeBuffer();
+function sendShipmentWorkbook(res, buffer, filename) {
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  res.setHeader("Content-Disposition", "attachment; filename=jart-shipment-records.xlsx");
-  res.send(Buffer.from(buffer));
+  res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+  res.send(buffer);
+}
+
+app.get("/api/shipments/template", requireAdmin, async (_req, res) => {
+  sendShipmentWorkbook(res, await createShipmentWorkbook([]), "jart-shipment-records-template.xlsx");
+});
+
+app.get("/api/shipments/export", requireAdmin, async (_req, res) => {
+  const shipments = (await readShipments()).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  sendShipmentWorkbook(res, await createShipmentWorkbook(shipments), "jart-shipment-records.xlsx");
 });
 
 app.get("/api/shipments/:trackingNumber", async (req, res) => {
@@ -327,7 +330,17 @@ app.post(
     try {
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(req.body);
-      const worksheet = workbook.worksheets[0];
+      const worksheet = workbook.worksheets.find(candidate => {
+        const headers = new Set();
+        candidate.getRow(1).eachCell(cell => {
+          const key = String(cell.value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+          if (key) headers.add(key);
+        });
+        const templateHeaders = (headers.has("pro") || headers.has("prono")) &&
+          (headers.has("consignee") || headers.has("receiver"));
+        const standardHeaders = headers.has("origin") && headers.has("destination") && headers.has("estimateddelivery");
+        return candidate.rowCount > 1 && (templateHeaders || standardHeaders);
+      }) || workbook.worksheets[0];
       if (!worksheet) return res.status(400).json({ message: "The workbook has no worksheets." });
 
       const columns = new Map();
@@ -336,9 +349,12 @@ app.post(
         if (key) columns.set(key, columnNumber);
       });
 
-      const missingColumns = ["origin", "destination", "estimateddelivery"].filter(column => !columns.has(column));
-      if (!columns.has("shipper") && !columns.has("sender")) missingColumns.unshift("shipper");
+      const isTemplateWorkbook = columns.has("pro") || columns.has("prono");
+      const missingColumns = isTemplateWorkbook
+        ? []
+        : ["origin", "destination", "estimateddelivery"].filter(column => !columns.has(column));
       if (!columns.has("consignee") && !columns.has("receiver")) missingColumns.unshift("consignee");
+      if (!isTemplateWorkbook && !columns.has("shipper") && !columns.has("sender")) missingColumns.unshift("shipper");
       if (missingColumns.length) {
         return res.status(400).json({ message: `Missing required columns: ${missingColumns.join(", ")}.` });
       }
@@ -373,28 +389,43 @@ app.post(
           trackingNumber,
           sender: String(getValue("shipper") ?? getValue("sender") ?? "").trim(),
           receiver: String(getValue("consignee") ?? getValue("receiver") ?? "").trim(),
-          contractNumber: String(getValue("contractnumber") ?? "").trim(),
-          clientName: String(getValue("clientname") ?? "").trim(),
+          contractNumber: String(getValue("contractnumber") ?? getValue("contract") ?? "").trim(),
+          clientName: String(getValue("clientname") ?? getValue("client") ?? "").trim(),
           origin: String(getValue("origin") ?? "").trim(),
           destination: String(getValue("destination") ?? "").trim(),
-          packageDescription: String(getValue("packagedescription") ?? "").trim(),
+          packageDescription: String(getValue("packagedescription") ?? getValue("description") ?? "").trim(),
           weight: getValue("weightkg") ?? getValue("weight") ?? 0,
           estimatedDelivery: normalizeExcelDate(getValue("estimateddelivery"), workbook.properties.date1904),
+          size: String(getValue("size") ?? "").trim(),
+          port: String(getValue("port") ?? "").trim(),
+          original: normalizeExcelDate(getValue("original"), workbook.properties.date1904),
+          paid: normalizeExcelDate(getValue("paid"), workbook.properties.date1904),
           status: String(getValue("status") ?? "").trim() || "Shipment Created",
-          location: String(getValue("currentlocation") ?? "").trim(),
+          location: String(getValue("currentlocation") ?? getValue("port") ?? "").trim(),
           note: String(getValue("note") ?? "").trim(),
           duties: String(getValue("duties") ?? "").trim(),
           gatepass: String(getValue("gatepass") ?? getValue("gatepassed") ?? "").trim(),
-          shippingLines: String(getValue("shippinglines") ?? getValue("shippingline") ?? "").trim(),
+          shippingLines: String(getValue("shippinglines") ?? getValue("shippingline") ?? getValue("sl") ?? "").trim(),
           container: String(getValue("container") ?? "").trim(),
           billOfLading: String(getValue("billoflading") ?? getValue("billofladingnumber") ?? "").trim()
         };
 
-        for (const field of ["sender", "receiver", "origin", "destination", "estimatedDelivery"]) {
-          if (!input[field]) return res.status(400).json({ message: `Row ${rowNumber}: ${field} is required.` });
+        if (isTemplateWorkbook) {
+          if (![input.receiver, input.billOfLading, input.container, input.packageDescription].some(Boolean)) {
+            return res.status(400).json({ message: `Row ${rowNumber}: add a consignee, bill of lading, container, or description.` });
+          }
+        } else {
+          for (const field of ["sender", "receiver", "origin", "destination", "estimatedDelivery"]) {
+            if (!input[field]) return res.status(400).json({ message: `Row ${rowNumber}: ${field} is required.` });
+          }
         }
-        if (!isValidISODate(input.estimatedDelivery)) {
+        if (input.estimatedDelivery && !isValidISODate(input.estimatedDelivery)) {
           return res.status(400).json({ message: `Row ${rowNumber}: Estimated Delivery must be a valid date.` });
+        }
+        for (const field of ["original", "paid"]) {
+          if (input[field] && !isValidISODate(input[field])) {
+            return res.status(400).json({ message: `Row ${rowNumber}: ${field} must be a valid date.` });
+          }
         }
         input.weight = Number(input.weight);
         if (!Number.isFinite(input.weight) || input.weight < 0) {
@@ -425,7 +456,7 @@ app.post(
 app.post("/api/shipments", requireAdmin, async (req, res) => {
   const {
     sender, receiver, origin, destination, packageDescription,
-    weight, estimatedDelivery, duties, gatepass, shippingLines, container,
+    weight, estimatedDelivery, size, port, original, paid, duties, gatepass, shippingLines, container,
     billOfLading, trackingNumber, contractNumber, clientName
   } = req.body;
 
@@ -445,6 +476,10 @@ app.post("/api/shipments", requireAdmin, async (req, res) => {
     packageDescription,
     weight,
     estimatedDelivery,
+    size,
+    port,
+    original,
+    paid,
     duties,
     gatepass,
     shippingLines,
@@ -506,6 +541,10 @@ app.patch("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
     packageDescription: textValue("packageDescription", shipment.packageDescription || "General Cargo") || "General Cargo",
     weight,
     estimatedDelivery,
+    size: textValue("size", shipment.size),
+    port: textValue("port", shipment.port),
+    original: textValue("original", shipment.original),
+    paid: textValue("paid", shipment.paid),
     duties: textValue("duties", shipment.duties),
     gatepass: textValue("gatepass", shipment.gatepass),
     shippingLines: textValue("shippingLines", shipment.shippingLines),

@@ -4,6 +4,7 @@ import {
   Clock3, MapPin, ArrowRight, RefreshCw, X, Trash2, Edit3,
   Menu, Box, AlertTriangle, XCircle, Upload, Download, FileSpreadsheet, Eye, Table2
 } from "lucide-react";
+import { SHIPMENT_COLUMNS, getShipmentColumnValue } from "./shipmentColumns.js";
 
 const API = "/api";
 const ADMIN_SESSION_KEY = "jart-admin-session";
@@ -15,10 +16,10 @@ async function apiFetch(path, options = {}) {
   return fetch(`${API}${path}`, { ...options, headers });
 }
 
-async function downloadTemplate(event) {
+async function downloadWorkbook(event, endpoint, filename) {
   event.preventDefault();
   try {
-    const response = await apiFetch("/shipments/template");
+    const response = await apiFetch(endpoint);
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.message || "Unable to download the workbook.");
@@ -27,12 +28,20 @@ async function downloadTemplate(event) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "jart-shipment-records.xlsx";
+    link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
   } catch (error) {
     alert(error.message || "Unable to download the workbook.");
   }
+}
+
+function downloadTemplate(event) {
+  return downloadWorkbook(event, "/shipments/template", "jart-shipment-records-template.xlsx");
+}
+
+function downloadExport(event) {
+  return downloadWorkbook(event, "/shipments/export", "jart-shipment-records.xlsx");
 }
 
 const STATUS_OPTIONS = [
@@ -46,6 +55,16 @@ function formatDate(date) {
     year: "numeric", month: "short", day: "numeric",
     hour: "2-digit", minute: "2-digit"
   });
+}
+
+function displayColumnValue(shipment, column) {
+  const value = getShipmentColumnValue(shipment, column);
+  if (value === "" || value === null || value === undefined) return "—";
+  if (column.type === "date" || column.type === "dateTime") {
+    return column.type === "dateTime" ? formatDate(value) : new Date(value).toLocaleDateString("en-PH");
+  }
+  if (column.key === "weight") return `${value} kg`;
+  return value;
 }
 
 function statusClass(status) {
@@ -86,6 +105,7 @@ function CreateShipment({ onClose, onCreated }) {
   const [form, setForm] = useState({
     sender: "", receiver: "", origin: "", destination: "",
     packageDescription: "", weight: "", estimatedDelivery: "",
+    size: "", port: "", original: "", paid: "",
     duties: "", gatepass: "", shippingLines: "", container: "",
     billOfLading: "", trackingNumber: "", contractNumber: "", clientName: ""
   });
@@ -127,7 +147,11 @@ function CreateShipment({ onClose, onCreated }) {
           <label>Destination *<input name="destination" value={form.destination} onChange={update} required placeholder="e.g. Cebu City" /></label>
           <label>Package Description<input name="packageDescription" value={form.packageDescription} onChange={update} placeholder="Documents, equipment, cargo..." /></label>
           <label>Weight (kg)<input type="number" min="0" step="0.01" name="weight" value={form.weight} onChange={update} placeholder="0.00" /></label>
+          <label>Size<input name="size" value={form.size} onChange={update} placeholder="e.g. 1X40" /></label>
+          <label>Port<input name="port" value={form.port} onChange={update} placeholder="Port of entry" /></label>
           <label className="full">Estimated Delivery *<input type="date" name="estimatedDelivery" value={form.estimatedDelivery} onChange={update} required /></label>
+          <label>Original<input type="date" name="original" value={form.original} onChange={update} /></label>
+          <label>Paid<input type="date" name="paid" value={form.paid} onChange={update} /></label>
           <label>Duties<input name="duties" value={form.duties} onChange={update} placeholder="Duty amount or reference" /></label>
           <label>Gatepass<input name="gatepass" value={form.gatepass} onChange={update} placeholder="Gatepass number or status" /></label>
           <label className="full">Shipping Lines<input name="shippingLines" value={form.shippingLines} onChange={update} placeholder="Shipping line" /></label>
@@ -155,6 +179,10 @@ function EditShipmentModal({ shipment, onClose, onUpdated }) {
     packageDescription: shipment.packageDescription || "",
     weight: shipment.weight ?? 0,
     estimatedDelivery: shipment.estimatedDelivery,
+    size: shipment.size || "",
+    port: shipment.port || "",
+    original: shipment.original || "",
+    paid: shipment.paid || "",
     duties: shipment.duties || "",
     gatepass: shipment.gatepass || "",
     shippingLines: shipment.shippingLines || "",
@@ -206,7 +234,11 @@ function EditShipmentModal({ shipment, onClose, onUpdated }) {
           <label>Destination *<input name="destination" value={form.destination} onChange={update} required /></label>
           <label>Package Description<input name="packageDescription" value={form.packageDescription} onChange={update} /></label>
           <label>Weight (kg)<input type="number" min="0" step="0.01" name="weight" value={form.weight} onChange={update} /></label>
+          <label>Size<input name="size" value={form.size} onChange={update} /></label>
+          <label>Port<input name="port" value={form.port} onChange={update} /></label>
           <label>Estimated Delivery *<input type="date" name="estimatedDelivery" value={form.estimatedDelivery} onChange={update} required /></label>
+          <label>Original<input type="date" name="original" value={form.original} onChange={update} /></label>
+          <label>Paid<input type="date" name="paid" value={form.paid} onChange={update} /></label>
           <label>Duties<input name="duties" value={form.duties} onChange={update} /></label>
           <label>Gatepass<input name="gatepass" value={form.gatepass} onChange={update} /></label>
           <label>Shipping Lines<input name="shippingLines" value={form.shippingLines} onChange={update} /></label>
@@ -264,7 +296,7 @@ function ExcelImport({ onClose, onImported }) {
           />
         </label>
         {file && <div className="selected-file"><FileSpreadsheet size={17}/><span>{file.name}</span></div>}
-        <p className="form-hint">Required: Shipper, Consignee, Origin, Destination, Estimated Delivery. Download the latest workbook for each batch, keep existing PRO numbers unchanged, and add new shipments on blank rows.</p>
+        <p className="form-hint">Import the shipment summary template or a standard shipment workbook. Existing PRO numbers are skipped; blank PRO numbers are generated automatically.</p>
         <div className="template-download"><a href="#" onClick={downloadTemplate}><Download size={15}/> Download latest shipment workbook</a></div>
         {error && <div className="error-box">{error}</div>}
         <div className="modal-actions">
@@ -296,7 +328,7 @@ function TrackingResult({ shipment, onClose }) {
           <StatusBadge status={shipment.status} />
         </div>
         <div className="route">
-          <span>{shipment.origin}</span><ArrowRight size={18}/><span>{shipment.destination}</span>
+          <span>{shipment.origin || shipment.port || "—"}</span><ArrowRight size={18}/><span>{shipment.destination || "—"}</span>
         </div>
       </div>
 
@@ -323,27 +355,9 @@ function TrackingResult({ shipment, onClose }) {
 }
 
 function ShipmentViewModal({ shipment, onClose }) {
-  const fields = [
-    ["PRO", shipment.trackingNumber],
-    ["Status", shipment.status],
-    ["Shipper", shipment.sender],
-    ["Consignee", shipment.receiver],
-    ["Contract Number", shipment.contractNumber],
-    ["Client Name", shipment.clientName],
-    ["Origin", shipment.origin],
-    ["Destination", shipment.destination],
-    ["Package Description", shipment.packageDescription],
-    ["Weight", shipment.weight == null ? "—" : `${shipment.weight} kg`],
-    ["Estimated Delivery", shipment.estimatedDelivery],
-    ["Container", shipment.container],
-    ["Bill of Lading", shipment.billOfLading],
-    ["Shipping Lines", shipment.shippingLines],
-    ["Duties", shipment.duties],
-    ["Gatepass", shipment.gatepass],
-    ["Record ID", shipment.id],
-    ["Created", formatDate(shipment.createdAt)],
-    ["Last Updated", formatDate(shipment.updatedAt)]
-  ];
+  const fields = SHIPMENT_COLUMNS
+    .filter(column => column.key !== "statusHistory")
+    .map(column => [column.header, displayColumnValue(shipment, column)]);
 
   return (
     <Modal title={`Shipment ${shipment.trackingNumber}`} onClose={onClose} wide>
@@ -373,48 +387,24 @@ function ShipmentViewModal({ shipment, onClose }) {
 }
 
 function ShipmentSpreadsheetModal({ shipments, onClose }) {
-  const columns = [
-    ["PRO", shipment => shipment.trackingNumber],
-    ["Shipper", shipment => shipment.sender],
-    ["Consignee", shipment => shipment.receiver],
-    ["Contract Number", shipment => shipment.contractNumber],
-    ["Client Name", shipment => shipment.clientName],
-    ["Origin", shipment => shipment.origin],
-    ["Destination", shipment => shipment.destination],
-    ["Package Description", shipment => shipment.packageDescription],
-    ["Weight (kg)", shipment => shipment.weight],
-    ["Estimated Delivery", shipment => shipment.estimatedDelivery],
-    ["Status", shipment => shipment.status],
-    ["Container", shipment => shipment.container],
-    ["Bill of Lading", shipment => shipment.billOfLading],
-    ["Shipping Lines", shipment => shipment.shippingLines],
-    ["Duties", shipment => shipment.duties],
-    ["Gatepass", shipment => shipment.gatepass],
-    ["Current Location", shipment => shipment.history?.at(-1)?.location],
-    ["Latest Note", shipment => shipment.history?.at(-1)?.note],
-    ["Created At", shipment => formatDate(shipment.createdAt)],
-    ["Last Updated", shipment => formatDate(shipment.updatedAt)],
-    ["Record ID", shipment => shipment.id],
-    ["Complete Status History", shipment => (shipment.history || []).map(item =>
-      `${formatDate(item.timestamp)} | ${item.status} | ${item.location || "—"} | ${item.note || "—"}`
-    ).join("\n")]
-  ];
-
   return (
     <Modal title="All Shipments · Spreadsheet View" onClose={onClose} spreadsheet>
       <div className="spreadsheet-toolbar">
         <span>{shipments.length} shipment{shipments.length === 1 ? "" : "s"}</span>
-        <a href="#" onClick={downloadTemplate}><Download size={15}/> Download Excel workbook</a>
+        <div className="spreadsheet-downloads">
+          <a href="#" onClick={downloadExport}><Download size={15}/> Download all shipments</a>
+          <a href="#" onClick={downloadTemplate}><FileSpreadsheet size={15}/> Blank import template</a>
+        </div>
       </div>
       <div className="spreadsheet-scroll" role="region" aria-label="All shipment data" tabIndex={0}>
         <table className="spreadsheet-table">
-          <thead><tr>{columns.map(([label]) => <th key={label}>{label}</th>)}</tr></thead>
+          <thead><tr>{SHIPMENT_COLUMNS.map(column => <th key={column.key}>{column.header}</th>)}</tr></thead>
           <tbody>
             {shipments.map(shipment => (
               <tr key={shipment.id}>
-                {columns.map(([label, value]) => (
-                  <td className={label === "Complete Status History" ? "spreadsheet-history" : ""} key={label}>
-                    {value(shipment) ?? "—"}
+                {SHIPMENT_COLUMNS.map(column => (
+                  <td className={column.key === "statusHistory" ? "spreadsheet-history" : ""} key={column.key}>
+                    {displayColumnValue(shipment, column)}
                   </td>
                 ))}
               </tr>
@@ -541,10 +531,9 @@ function App() {
       s.status === activeFilter;
 
     const q = query.toLowerCase();
-    const matchesSearch = !q || [
-      s.trackingNumber, s.sender, s.receiver, s.contractNumber, s.clientName, s.origin, s.destination, s.status,
-      s.duties, s.gatepass, s.shippingLines, s.container, s.billOfLading
-    ].some(v => String(v).toLowerCase().includes(q));
+    const matchesSearch = !q || SHIPMENT_COLUMNS.some(column =>
+      String(getShipmentColumnValue(s, column)).toLowerCase().includes(q)
+    );
 
     return matchesFilter && matchesSearch;
   });
@@ -590,6 +579,7 @@ function App() {
             {adminAuthenticated ? <>
               <button className="button secondary refresh" onClick={loadShipments}><RefreshCw size={16}/> Refresh</button>
               <button className="button secondary excel-import" title="Import shipments from Excel" aria-label="Import shipments from Excel" onClick={() => setModal("import")}><FileSpreadsheet size={16}/><span>Excel Import</span></button>
+              <button className="button secondary excel-export" title="Download all shipments as an Excel workbook" aria-label="Download all shipments as an Excel workbook" onClick={downloadExport}><Download size={16}/><span>Excel Export</span></button>
               <button className="button primary" onClick={() => setModal("create")}><Plus size={17}/> New Shipment</button>
               {!import.meta.env.DEV && <button className="button secondary" onClick={() => { sessionStorage.removeItem(ADMIN_SESSION_KEY); setAdminAuthenticated(false); setShipments([]); setTracking(null); }}>Sign Out</button>}
             </> : <button className="button secondary" onClick={() => setShowAdminLogin(true)}>Admin Sign In</button>}
@@ -645,24 +635,16 @@ function App() {
           filtered.length === 0 ? <div className="empty"><XCircle/><p>No shipments match your search.</p></div> :
           <div className="table-wrap">
             <table>
-              <thead><tr><th>PRO</th><th>Shipper</th><th>Route</th><th>Consignee</th><th>Contract Number</th><th>Client Name</th><th>Container</th><th>Bill of Lading</th><th>Shipping Lines</th><th>Duties</th><th>Gatepass</th><th>Delivery</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+              <thead><tr>{SHIPMENT_COLUMNS.map(column => <th key={column.key}>{column.header}</th>)}<th></th></tr></thead>
               <tbody>
                 {filtered.map(s => (
                   <tr key={s.id}>
-                    <td><button className="tracking-link" onClick={() => setTracking(s)}>{s.trackingNumber}</button><small>{s.packageDescription}</small></td>
-                    <td>{s.sender || "—"}</td>
-                    <td><div className="route-cell"><span>{s.origin}</span><ArrowRight size={14}/><span>{s.destination}</span></div></td>
-                    <td>{s.receiver || "—"}</td>
-                    <td>{s.contractNumber || "—"}</td>
-                    <td>{s.clientName || "—"}</td>
-                    <td>{s.container || "—"}</td>
-                    <td>{s.billOfLading || "—"}</td>
-                    <td>{s.shippingLines || "—"}</td>
-                    <td>{s.duties || "—"}</td>
-                    <td>{s.gatepass || "—"}</td>
-                    <td>{s.estimatedDelivery}</td>
-                    <td><StatusBadge status={s.status}/></td>
-                    <td>{formatDate(s.updatedAt)}</td>
+                    {SHIPMENT_COLUMNS.map(column => (
+                      <td className={column.key === "statusHistory" ? "spreadsheet-history" : ""} key={column.key}>
+                        {column.key === "trackingNumber" ? <button className="tracking-link" onClick={() => setTracking(s)}>{displayColumnValue(s, column)}</button> :
+                          column.key === "status" ? <StatusBadge status={s.status}/> : displayColumnValue(s, column)}
+                      </td>
+                    ))}
                     <td>
                       <div className="row-actions">
                         <button title="View tracking" className="icon-button" onClick={() => setTracking(s)}><Search size={16}/></button>

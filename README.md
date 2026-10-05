@@ -35,6 +35,10 @@ http://localhost:4000
 - Shipment history timeline
 - Update shipment status
 - Delete shipment
+- Track template fields for PRO, consignee, bill of lading, container size, port, client, original/paid dates, and duties
+- Import the SHIPPING SUMMARY workbook format or a standard shipment workbook
+- View all shipment columns in the dashboard and spreadsheet view
+- Download a blank Excel import template or export all current shipments to Excel
 - Responsive desktop/tablet/mobile layout
 - Local JSON persistence in `server/data/shipments.json`
 

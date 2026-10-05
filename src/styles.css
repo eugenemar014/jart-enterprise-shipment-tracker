@@ -43,7 +43,7 @@ nav { display: grid; gap: 6px; }
 .topbar { min-height: 92px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .topbar h1 { margin: 2px 0 0; font-size: 25px; letter-spacing: -.6px; }
 .eyebrow { color: var(--green-dark); font-weight: 800; font-size: 10px; letter-spacing: 1.6px; }
-.top-actions { display: flex; gap: 8px; }
+.top-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .button { border: 0; border-radius: 9px; padding: 10px 14px; display: inline-flex; gap: 7px; align-items: center; justify-content: center; font-weight: 700; text-decoration: none; }
 .button.primary { color: white; background: var(--green); }
 .button.primary:hover { background: var(--green-dark); }
@@ -108,7 +108,7 @@ select, textarea, label input { border: 1px solid var(--border); border-radius: 
 select:focus, input:focus, textarea:focus { border-color: #74c8a8; box-shadow: 0 0 0 3px rgba(5,150,105,.12); }
 .table-tools select { font-size: 12px; }
 .table-wrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; min-width: 1450px; }
+table { border-collapse: collapse; width: 100%; min-width: 3400px; }
 th { text-align: left; font-size: 9px; color: #596b5c; text-transform: uppercase; letter-spacing: .9px; background: var(--cream-deep); padding: 11px 15px; }
 td { border-top: 1px solid #edf1ef; padding: 13px 15px; font-size: 11px; vertical-align: middle; }
 td small { display: block; color: var(--muted); margin-top: 3px; font-size: 9px; }
@@ -141,14 +141,16 @@ td small { display: block; color: var(--muted); margin-top: 3px; font-size: 9px;
 .modal-header h2 { margin: 0; font-size: 19px; }
 .spreadsheet-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 0 0 12px; color: var(--muted); font-size: 12px; }
 .spreadsheet-toolbar a { display: inline-flex; align-items: center; gap: 6px; color: var(--green-dark); font-weight: 700; text-decoration: none; }
+.spreadsheet-downloads { display: flex; flex-wrap: wrap; gap: 16px; }
 .spreadsheet-scroll { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: 7px; }
-.spreadsheet-table { width: max-content; min-width: 2200px; border-collapse: separate; border-spacing: 0; }
+.spreadsheet-table { width: max-content; min-width: 3400px; border-collapse: separate; border-spacing: 0; }
 .spreadsheet-table th { position: sticky; top: 0; z-index: 2; white-space: nowrap; background: var(--cream-deep); }
 .spreadsheet-table th, .spreadsheet-table td { border-right: 1px solid var(--border); }
 .spreadsheet-table td { min-width: 110px; max-width: 260px; white-space: normal; overflow-wrap: anywhere; }
 .spreadsheet-table tr:nth-child(even) td { background: #f8faf9; }
 .spreadsheet-table tr:hover td { background: #eef7f2; }
 .spreadsheet-table .spreadsheet-history { min-width: 360px; max-width: 420px; white-space: pre-wrap; line-height: 1.5; }
+.table-wrap td.spreadsheet-history { min-width: 300px; max-width: 440px; white-space: pre-wrap; line-height: 1.5; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 label { display: grid; gap: 6px; font-size: 11px; font-weight: 700; color: #45554f; }
 label input, label textarea, label select { width: 100%; font-size: 12px; color: var(--ink); font-weight: 400; }
@@ -204,7 +206,8 @@ footer { color: #87958f; font-size: 10px; text-align: center; padding: 25px 0 0;
   .hero h2 { font-size: 21px; }
   .top-actions .button { padding: 9px; font-size: 11px; }
   .top-actions .button svg { display: none; }
-  .top-actions .excel-import { width: 38px; aspect-ratio: 1; }
-  .top-actions .excel-import svg { display: block; }
-  .top-actions .excel-import span { display: none; }
+  .top-actions .excel-import, .top-actions .excel-export { width: 38px; aspect-ratio: 1; }
+  .top-actions .excel-import svg, .top-actions .excel-export svg { display: block; }
+  .top-actions .excel-import span, .top-actions .excel-export span { display: none; }
+  .spreadsheet-downloads { flex-direction: column; gap: 8px; }
 }
