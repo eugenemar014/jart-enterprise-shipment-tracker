@@ -610,6 +610,24 @@ app.patch("/api/shipments/:trackingNumber/status", requireAdmin, async (req, res
   res.json(shipments[index]);
 });
 
+app.delete("/api/shipments/bulk", requireAdmin, async (req, res) => {
+  const deleteAll = req.body?.all === true;
+  const requestedTrackingNumbers = req.body?.trackingNumbers;
+  if (!deleteAll && (!Array.isArray(requestedTrackingNumbers) || requestedTrackingNumbers.length === 0)) {
+    return res.status(400).json({ message: "Select at least one shipment to delete." });
+  }
+
+  const shipments = await readShipments();
+  const trackingNumbers = new Set((requestedTrackingNumbers || []).map(value => String(value).trim().toUpperCase()));
+  const remaining = deleteAll
+    ? []
+    : shipments.filter(shipment => !trackingNumbers.has(shipment.trackingNumber.toUpperCase()));
+  const deleted = shipments.length - remaining.length;
+
+  if (deleted) await writeShipments(remaining);
+  res.json({ deleted });
+});
+
 app.delete("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
   const shipments = await readShipments();
   const filtered = shipments.filter(

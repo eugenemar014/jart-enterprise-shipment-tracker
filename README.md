@@ -35,6 +35,7 @@ http://localhost:4000
 - Shipment history timeline
 - Update shipment status
 - Delete shipment
+- Delete one or multiple selected shipments, or delete all shipments with confirmation
 - Track template fields for PRO, consignee, bill of lading, container size, port, client, original/paid dates, and duties
 - Import the SHIPPING SUMMARY workbook format or a standard shipment workbook
 - View all shipment columns in the dashboard and spreadsheet view

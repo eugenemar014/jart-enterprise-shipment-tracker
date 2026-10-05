@@ -460,6 +460,7 @@ function App() {
   const [shipments, setShipments] = useState([]);
   const [query, setQuery] = useState("");
   const [selectedShipmentIds, setSelectedShipmentIds] = useState([]);
+  const [deletingShipments, setDeletingShipments] = useState(false);
   const [trackQuery, setTrackQuery] = useState("");
   const [tracking, setTracking] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -518,6 +519,42 @@ function App() {
       setShipments(prev => prev.filter(s => s.trackingNumber !== shipment.trackingNumber));
       setSelectedShipmentIds(prev => prev.filter(id => id !== shipment.id));
       if (tracking?.trackingNumber === shipment.trackingNumber) setTracking(null);
+    }
+  }
+
+  async function deleteSelectedShipments(deleteAll = false) {
+    const targets = deleteAll
+      ? shipments
+      : shipments.filter(shipment => selectedShipmentIds.includes(shipment.id));
+    if (!targets.length || deletingShipments) return;
+
+    const confirmation = deleteAll
+      ? `Permanently delete all ${targets.length} shipments, including shipments hidden by the current filter?`
+      : `Permanently delete ${targets.length} selected shipment${targets.length === 1 ? "" : "s"}?`;
+    if (!confirm(confirmation)) return;
+
+    setDeletingShipments(true);
+    try {
+      const response = await apiFetch("/shipments/bulk", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(deleteAll
+          ? { all: true }
+          : { trackingNumbers: targets.map(shipment => shipment.trackingNumber) })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "Unable to delete shipments.");
+
+      const deletedTrackingNumbers = new Set(targets.map(shipment => shipment.trackingNumber));
+      const deletedIds = new Set(targets.map(shipment => shipment.id));
+      setShipments(current => current.filter(shipment => !deletedTrackingNumbers.has(shipment.trackingNumber)));
+      setSelectedShipmentIds(current => current.filter(id => !deletedIds.has(id)));
+      if (tracking && deletedTrackingNumbers.has(tracking.trackingNumber)) setTracking(null);
+      setImportMessage(`${data.deleted} shipment${data.deleted === 1 ? "" : "s"} deleted.`);
+    } catch (error) {
+      alert(error.message || "Unable to delete shipments.");
+    } finally {
+      setDeletingShipments(false);
     }
   }
 
@@ -653,7 +690,7 @@ function App() {
         {adminAuthenticated && <section id="shipments" className="table-section">
           {importMessage && <div className="import-result" role="status"><span>{importMessage}</span><button className="icon-button" aria-label="Dismiss import summary" onClick={() => setImportMessage("")}><X size={16}/></button></div>}
           <div className="section-header">
-            <div><div className="eyebrow">SHIPMENT MANAGEMENT</div><h2>All Shipments</h2><div className="selection-summary" aria-live="polite">{selectedShipmentIds.length} selected{selectedShipmentIds.length > 0 && <button type="button" onClick={clearSelection}>Clear</button>}</div></div>
+            <div><div className="eyebrow">SHIPMENT MANAGEMENT</div><h2>All Shipments</h2><div className="selection-summary" aria-live="polite"><span>{selectedShipmentIds.length} selected</span>{selectedShipmentIds.length > 0 && <button type="button" onClick={clearSelection}>Clear selection</button>}<div className="bulk-delete-actions">{selectedShipmentIds.length > 0 && <button className="button danger" type="button" disabled={deletingShipments} onClick={() => deleteSelectedShipments()}><Trash2 size={15}/>{deletingShipments ? "Deleting..." : `Delete selected (${selectedShipmentIds.length})`}</button>}{shipments.length > 0 && <button className="button danger" type="button" disabled={deletingShipments} onClick={() => deleteSelectedShipments(true)}><Trash2 size={15}/>{deletingShipments ? "Deleting..." : `Delete all (${shipments.length})`}</button>}</div></div></div>
             <div className="table-tools">
               <button className="button secondary spreadsheet-button" onClick={() => setModal({ type: "spreadsheet" })}><Table2 size={16}/> Spreadsheet View</button>
               <div className="search-box"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search shipments..." /></div>
