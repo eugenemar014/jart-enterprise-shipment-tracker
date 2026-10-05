@@ -100,6 +100,8 @@ nav { display: grid; gap: 6px; }
 .table-section { background: var(--white); border: 1px solid var(--border); border-radius: 15px; overflow: hidden; }
 .import-result { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 18px; border-bottom: 1px solid #bde4d3; background: #ecfdf5; color: #047857; font-size: 12px; font-weight: 700; }
 .section-header { padding: 20px 21px; display: flex; justify-content: space-between; align-items: center; gap: 15px; border-bottom: 1px solid var(--border); }
+.selection-summary { display: flex; align-items: center; gap: 8px; margin-top: 5px; color: var(--muted); font-size: 11px; }
+.selection-summary button { border: 0; padding: 0; color: var(--green-dark); background: transparent; font: inherit; font-weight: 700; text-decoration: underline; }
 .table-tools { display: flex; gap: 8px; }
 .search-box { display: flex; align-items: center; gap: 7px; border: 1px solid var(--border); padding: 8px 10px; border-radius: 8px; background: var(--white); }
 .search-box svg { color: #82918c; }
@@ -112,6 +114,10 @@ table { border-collapse: collapse; width: 100%; min-width: 3400px; }
 th { text-align: left; font-size: 9px; color: #596b5c; text-transform: uppercase; letter-spacing: .9px; background: var(--cream-deep); padding: 11px 15px; }
 td { border-top: 1px solid #edf1ef; padding: 13px 15px; font-size: 11px; vertical-align: middle; }
 td small { display: block; color: var(--muted); margin-top: 3px; font-size: 9px; }
+.selection-cell { width: 42px; min-width: 42px; padding-left: 12px; padding-right: 12px; text-align: center; }
+.selection-checkbox { width: 16px; height: 16px; margin: 0; accent-color: var(--green); cursor: pointer; vertical-align: middle; }
+tbody tr.selected-row td { background: #e8f5ee; }
+tbody tr.selected-row:hover td { background: #dcefe4; }
 .tracking-link { border: 0; background: transparent; padding: 0; color: var(--green-dark); font-weight: 800; font-size: 11px; }
 .route-cell { display: flex; align-items: center; gap: 5px; max-width: 220px; }
 .route-cell span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

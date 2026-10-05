@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Package, Search, Plus, LayoutDashboard, Truck, CheckCircle2,
   Clock3, MapPin, ArrowRight, RefreshCw, X, Trash2, Edit3,
@@ -296,7 +296,7 @@ function ExcelImport({ onClose, onImported }) {
           />
         </label>
         {file && <div className="selected-file"><FileSpreadsheet size={17}/><span>{file.name}</span></div>}
-        <p className="form-hint">Import the shipment summary template or a standard shipment workbook. Existing PRO numbers are skipped; blank PRO numbers are generated automatically.</p>
+        <p className="form-hint">Import the shipment summary template or a standard shipment workbook. PRO values are preserved exactly as shown in Excel; existing PRO numbers are skipped without changing their records. New rows with a blank PRO receive an assigned number.</p>
         <div className="template-download"><a href="#" onClick={downloadTemplate}><Download size={15}/> Download latest shipment workbook</a></div>
         {error && <div className="error-box">{error}</div>}
         <div className="modal-actions">
@@ -459,6 +459,7 @@ function AdminLogin({ onClose, onLogin }) {
 function App() {
   const [shipments, setShipments] = useState([]);
   const [query, setQuery] = useState("");
+  const [selectedShipmentIds, setSelectedShipmentIds] = useState([]);
   const [trackQuery, setTrackQuery] = useState("");
   const [tracking, setTracking] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -470,6 +471,7 @@ function App() {
     () => import.meta.env.DEV || Boolean(sessionStorage.getItem(ADMIN_SESSION_KEY))
   );
   const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const selectAllVisibleRef = useRef(null);
 
   async function loadShipments() {
     if (!adminAuthenticated) return;
@@ -483,7 +485,9 @@ function App() {
         return;
       }
       if (!res.ok) throw new Error("Unable to load shipments.");
-      setShipments(await res.json());
+      const data = await res.json();
+      setShipments(data);
+      setSelectedShipmentIds(current => current.filter(id => data.some(shipment => shipment.id === id)));
     } catch {
       alert("Cannot connect to the server. Make sure the backend is running.");
     } finally {
@@ -512,6 +516,7 @@ function App() {
     const res = await apiFetch(`/shipments/${shipment.trackingNumber}`, { method: "DELETE" });
     if (res.ok) {
       setShipments(prev => prev.filter(s => s.trackingNumber !== shipment.trackingNumber));
+      setSelectedShipmentIds(prev => prev.filter(id => id !== shipment.id));
       if (tracking?.trackingNumber === shipment.trackingNumber) setTracking(null);
     }
   }
@@ -537,6 +542,33 @@ function App() {
 
     return matchesFilter && matchesSearch;
   });
+  const selectedVisibleCount = filtered.filter(shipment => selectedShipmentIds.includes(shipment.id)).length;
+  const allVisibleSelected = filtered.length > 0 && selectedVisibleCount === filtered.length;
+
+  useEffect(() => {
+    if (selectAllVisibleRef.current) {
+      selectAllVisibleRef.current.indeterminate = selectedVisibleCount > 0 && !allVisibleSelected;
+    }
+  }, [allVisibleSelected, selectedVisibleCount]);
+
+  function toggleShipmentSelection(shipmentId, selected) {
+    setSelectedShipmentIds(current => selected
+      ? current.includes(shipmentId) ? current : [...current, shipmentId]
+      : current.filter(id => id !== shipmentId)
+    );
+  }
+
+  function toggleVisibleShipments(selected) {
+    const visibleIds = new Set(filtered.map(shipment => shipment.id));
+    setSelectedShipmentIds(current => selected
+      ? [...new Set([...current, ...visibleIds])]
+      : current.filter(id => !visibleIds.has(id))
+    );
+  }
+
+  function clearSelection() {
+    setSelectedShipmentIds([]);
+  }
 
   function created(shipment) {
     setShipments(prev => [shipment, ...prev]);
@@ -621,7 +653,7 @@ function App() {
         {adminAuthenticated && <section id="shipments" className="table-section">
           {importMessage && <div className="import-result" role="status"><span>{importMessage}</span><button className="icon-button" aria-label="Dismiss import summary" onClick={() => setImportMessage("")}><X size={16}/></button></div>}
           <div className="section-header">
-            <div><div className="eyebrow">SHIPMENT MANAGEMENT</div><h2>All Shipments</h2></div>
+            <div><div className="eyebrow">SHIPMENT MANAGEMENT</div><h2>All Shipments</h2><div className="selection-summary" aria-live="polite">{selectedShipmentIds.length} selected{selectedShipmentIds.length > 0 && <button type="button" onClick={clearSelection}>Clear</button>}</div></div>
             <div className="table-tools">
               <button className="button secondary spreadsheet-button" onClick={() => setModal({ type: "spreadsheet" })}><Table2 size={16}/> Spreadsheet View</button>
               <div className="search-box"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search shipments..." /></div>
@@ -635,10 +667,11 @@ function App() {
           filtered.length === 0 ? <div className="empty"><XCircle/><p>No shipments match your search.</p></div> :
           <div className="table-wrap">
             <table>
-              <thead><tr>{SHIPMENT_COLUMNS.map(column => <th key={column.key}>{column.header}</th>)}<th></th></tr></thead>
+              <thead><tr><th className="selection-cell"><input ref={selectAllVisibleRef} className="selection-checkbox" type="checkbox" aria-label="Select all visible shipments" checked={allVisibleSelected} onChange={event => toggleVisibleShipments(event.target.checked)}/></th>{SHIPMENT_COLUMNS.map(column => <th key={column.key}>{column.header}</th>)}<th></th></tr></thead>
               <tbody>
                 {filtered.map(s => (
-                  <tr key={s.id}>
+                  <tr className={selectedShipmentIds.includes(s.id) ? "selected-row" : ""} key={s.id}>
+                    <td className="selection-cell"><input className="selection-checkbox" type="checkbox" aria-label={`Select ${s.trackingNumber}`} checked={selectedShipmentIds.includes(s.id)} onChange={event => toggleShipmentSelection(s.id, event.target.checked)}/></td>
                     {SHIPMENT_COLUMNS.map(column => (
                       <td className={column.key === "statusHistory" ? "spreadsheet-history" : ""} key={column.key}>
                         {column.key === "trackingNumber" ? <button className="tracking-link" onClick={() => setTracking(s)}>{displayColumnValue(s, column)}</button> :

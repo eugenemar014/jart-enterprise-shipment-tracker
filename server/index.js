@@ -201,6 +201,15 @@ function excelCellValue(value) {
   return value;
 }
 
+function excelTrackingNumber(cell) {
+  const value = excelCellValue(cell?.value);
+  const zeroFormat = String(cell?.numFmt || "").split(";")[0].split(".")[0];
+  if (typeof value === "number" && Number.isFinite(value) && /^0+$/.test(zeroFormat)) {
+    return String(Math.trunc(value)).padStart(zeroFormat.length, "0");
+  }
+  return String(value ?? "").trim();
+}
+
 const app = express();
 app.set("trust proxy", 1);
 if (process.env.NODE_ENV !== "production") app.use(cors());
@@ -373,7 +382,10 @@ app.post(
         const values = [...columns.values()].map(columnNumber => row.getCell(columnNumber).value);
         if (values.every(value => value === null || value === undefined || String(value).trim() === "")) continue;
 
-        const trackingNumber = String(getValue("pro") ?? getValue("trackingnumber") ?? "").trim();
+        const proColumn = columns.get("pro") ?? columns.get("prono") ?? columns.get("pronumber") ??
+          columns.get("trackingnumber") ?? columns.get("trackingno");
+        const proCell = proColumn ? row.getCell(proColumn) : null;
+        const trackingNumber = excelTrackingNumber(proCell);
         if (trackingNumber) {
           if (existingTrackingNumbers.has(trackingNumber.toUpperCase())) {
             skipped += 1;
