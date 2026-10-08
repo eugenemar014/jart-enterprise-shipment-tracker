@@ -376,6 +376,14 @@ function ShipmentSpreadsheetModal({ shipments, onClose, onUpdated }) {
   const [edits, setEdits] = useState({});
   const [savingId, setSavingId] = useState("");
   const [errors, setErrors] = useState({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
+
+  const visibleShipments = shipments.filter(shipment =>
+    !appliedSearch || SHIPMENT_COLUMNS.some(column =>
+      String(getShipmentColumnValue(shipment, column)).toLowerCase().includes(appliedSearch.toLowerCase())
+    )
+  );
 
   function currentValue(shipment, column) {
     const edited = edits[shipment.id] || {};
@@ -441,17 +449,30 @@ function ShipmentSpreadsheetModal({ shipments, onClose, onUpdated }) {
   return (
     <Modal title="All Shipments · Spreadsheet View" onClose={onClose} spreadsheet>
       <div className="spreadsheet-toolbar">
-        <span>{shipments.length} shipment{shipments.length === 1 ? "" : "s"} · Edit cells, then save each row</span>
-        <div className="spreadsheet-downloads">
-          <a href="#" onClick={downloadExport}><Download size={15}/> Download all shipments</a>
-          <a href="#" onClick={downloadTemplate}><FileSpreadsheet size={15}/> Blank import template</a>
+        <span>{appliedSearch ? `${visibleShipments.length} of ${shipments.length}` : shipments.length} shipment{shipments.length === 1 && !appliedSearch ? "" : "s"} · Edit cells, then save each row</span>
+        <div className="spreadsheet-toolbar-actions">
+          <form className="spreadsheet-search" onSubmit={event => { event.preventDefault(); setAppliedSearch(searchQuery.trim()); }}>
+            <input
+              type="search"
+              aria-label="Search shipment spreadsheet"
+              placeholder="Search shipments..."
+              value={searchQuery}
+              onChange={event => setSearchQuery(event.target.value)}
+            />
+            <button className="button secondary" type="submit"><Search size={15}/> Search</button>
+            {appliedSearch && <button className="button secondary" type="button" onClick={() => { setSearchQuery(""); setAppliedSearch(""); }}>Clear</button>}
+          </form>
+          <div className="spreadsheet-downloads">
+            <a href="#" onClick={downloadExport}><Download size={15}/> Download all shipments</a>
+            <a href="#" onClick={downloadTemplate}><FileSpreadsheet size={15}/> Blank import template</a>
+          </div>
         </div>
       </div>
       <div className="spreadsheet-scroll" role="region" aria-label="All shipment data" tabIndex={0}>
         <table className="spreadsheet-table">
           <thead><tr>{SHIPMENT_COLUMNS.map(column => <th key={column.key}>{column.header}</th>)}<th>EDIT</th></tr></thead>
           <tbody>
-            {shipments.map(shipment => (
+            {visibleShipments.map(shipment => (
               <tr key={shipment.id}>
                 {SHIPMENT_COLUMNS.map(column => (
                   <td key={column.key}>
@@ -468,6 +489,9 @@ function ShipmentSpreadsheetModal({ shipments, onClose, onUpdated }) {
                 </td>
               </tr>
             ))}
+            {visibleShipments.length === 0 && (
+              <tr><td className="spreadsheet-no-results" colSpan={SHIPMENT_COLUMNS.length + 1}>No shipments match your search.</td></tr>
+            )}
           </tbody>
         </table>
       </div>
