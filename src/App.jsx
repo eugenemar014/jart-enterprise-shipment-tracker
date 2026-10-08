@@ -813,7 +813,7 @@ function App() {
 
           {loading ? <div className="empty"><RefreshCw className="spin"/><p>Loading shipments...</p></div> :
           filtered.length === 0 ? <div className="empty"><XCircle/><p>No shipments match your search.</p></div> :
-          <div className="table-wrap">
+          <div className="table-wrap" role="region" aria-label="Shipment list" tabIndex={0}>
             <table>
               <thead><tr><th className="selection-cell"><input ref={selectAllVisibleRef} className="selection-checkbox" type="checkbox" aria-label="Select all visible shipments" checked={allVisibleSelected} onChange={event => toggleVisibleShipments(event.target.checked)}/></th>{SHIPMENT_COLUMNS.map(column => <th key={column.key}>{column.header}</th>)}<th></th></tr></thead>
               <tbody>
