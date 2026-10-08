@@ -16,6 +16,7 @@ export const SHIPMENT_COLUMNS = [
   { key: "destination", header: "PORT", width: 28 },
   { key: "weight", header: "WEIGHT (KG)", width: 14 },
   { key: "estimatedDelivery", header: "ETA", width: 20, type: "date" },
+  { key: "deliveryOrder", header: "DELIVERY ORDER", width: 22 },
   { key: "gatepass", header: "GATEPASS", width: 20 },
   { key: "currentLocation", header: "DELIVERY LOCATION", width: 28 },
   { key: "latestNote", header: "LATEST NOTE", width: 36 },

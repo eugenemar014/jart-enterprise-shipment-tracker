@@ -147,6 +147,7 @@ function createShipment(input, shipments) {
     estimatedDelivery: input.estimatedDelivery,
     duties: input.duties || "",
     paid: input.paid || "",
+    deliveryOrder: input.deliveryOrder || "",
     gatepass: input.gatepass || "",
     shippingLines: input.shippingLines || "",
     container: input.container || "",
@@ -156,7 +157,7 @@ function createShipment(input, shipments) {
     updatedAt: now,
     history: [{
       status,
-      location: input.location || input.origin,
+      location: input.location ?? input.origin ?? "",
       timestamp: now,
       note: input.note || (status === "Shipment Created" ? "Shipment has been created." : "Shipment imported from Excel.")
     }]
@@ -410,6 +411,7 @@ app.post(
           packageDescription: String(getValue("packagedescription") ?? getValue("description") ?? "").trim(),
           weight: getValue("weightkg") ?? getValue("weight") ?? 0,
           estimatedDelivery: normalizeExcelDate(getValue("eta") ?? getValue("estimateddelivery"), workbook.properties.date1904),
+          deliveryOrder: String(getValue("deliveryorder") ?? "").trim(),
           size: String(getValue("size") ?? "").trim(),
           entryNumber: String(getValue("entry") ?? getValue("entrynumber") ?? normalizeExcelDate(getValue("original"), workbook.properties.date1904)).trim(),
           original: normalizeExcelDate(getValue("original"), workbook.properties.date1904),
@@ -561,6 +563,7 @@ app.patch("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
     entryNumber: textValue("entryNumber", shipment.entryNumber || shipment.original),
     duties: textValue("duties", shipment.duties),
     paid: textValue("paid", shipment.paid),
+    deliveryOrder: textValue("deliveryOrder", shipment.deliveryOrder),
     gatepass: textValue("gatepass", shipment.gatepass),
     shippingLines: textValue("shippingLines", shipment.shippingLines),
     container: textValue("container", shipment.container),
