@@ -517,19 +517,20 @@ app.patch("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
 
   const shipment = shipments[index];
   const textValue = (field, existing = "") => String(req.body[field] ?? existing).trim();
-  const trackingNumber = textValue("trackingNumber", shipment.trackingNumber);
+  const trackingNumber = textValue("trackingNumber", shipment.trackingNumber) || shipment.trackingNumber;
   const sender = textValue("sender", shipment.sender);
   const receiver = textValue("receiver", shipment.receiver);
   const origin = textValue("origin", shipment.origin);
   const destination = textValue("destination", shipment.destination);
   const estimatedDelivery = textValue("estimatedDelivery", shipment.estimatedDelivery);
   const status = textValue("status", shipment.status);
+  const editLatest = req.body.editLatest === true;
   const weight = Number(req.body.weight ?? shipment.weight);
 
-  if (!trackingNumber || !sender || !receiver || !origin || !destination || !estimatedDelivery) {
+  if (!editLatest && (!trackingNumber || !sender || !receiver || !origin || !destination || !estimatedDelivery)) {
     return res.status(400).json({ message: "Tracking number, sender, receiver, origin, destination, and delivery date are required." });
   }
-  if (!isValidISODate(estimatedDelivery)) {
+  if (estimatedDelivery && !isValidISODate(estimatedDelivery)) {
     return res.status(400).json({ message: "ETA must be a valid date." });
   }
   if (!Number.isFinite(weight) || weight < 0) {
@@ -545,7 +546,6 @@ app.patch("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
   const previousStatus = shipment.status;
   const location = textValue("location");
   const note = textValue("note");
-  const editLatest = req.body.editLatest === true;
   Object.assign(shipment, {
     trackingNumber,
     sender,
