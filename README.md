@@ -34,6 +34,8 @@ http://localhost:4000
 - Shipment details
 - Shipment history timeline
 - Update shipment status
+- Editable spreadsheet view with PRO sorting
+- Excel import/export using the shipment-record template columns
 - Delete shipment
 - Responsive desktop/tablet/mobile layout
 - Local JSON persistence in `server/data/shipments.json`

@@ -135,12 +135,15 @@ function createShipment(input, shipments) {
     receiver: input.receiver,
     contractNumber: input.contractNumber || "",
     clientName: input.clientName || "",
+    entryNumber: input.entryNumber || "",
     origin: input.origin,
     destination: input.destination,
     packageDescription: input.packageDescription || "General Cargo",
     weight: Number(input.weight) || 0,
+    containerSize: input.containerSize || "",
     estimatedDelivery: input.estimatedDelivery,
     duties: input.duties || "",
+    paid: input.paid || "",
     gatepass: input.gatepass || "",
     shippingLines: input.shippingLines || "",
     container: input.container || "",
@@ -262,27 +265,29 @@ app.get("/api/shipments/template", requireAdmin, async (_req, res) => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("Shipments");
   worksheet.columns = [
-    { header: "PRO", key: "trackingNumber", width: 22 },
-    { header: "Shipper", key: "sender", width: 24 },
-    { header: "Consignee", key: "receiver", width: 24 },
-    { header: "Contract Number", key: "contractNumber", width: 24 },
-    { header: "Client Name", key: "clientName", width: 24 },
-    { header: "Origin", key: "origin", width: 28 },
-    { header: "Destination", key: "destination", width: 28 },
-    { header: "Package Description", key: "packageDescription", width: 30 },
-    { header: "Weight (kg)", key: "weight", width: 14 },
-    { header: "Estimated Delivery", key: "estimatedDelivery", width: 20, style: { numFmt: "yyyy-mm-dd" } },
-    { header: "Status", key: "status", width: 22 },
-    { header: "Current Location", key: "location", width: 28 },
-    { header: "Note", key: "note", width: 36 },
-    { header: "Duties", key: "duties", width: 18 },
-    { header: "Gatepass", key: "gatepass", width: 20 },
-    { header: "Shipping Lines", key: "shippingLines", width: 24 },
-    { header: "Container", key: "container", width: 22 },
-    { header: "Bill of Lading", key: "billOfLading", width: 24 },
-    { header: "Created At", key: "createdAt", width: 26 },
-    { header: "Last Updated", key: "updatedAt", width: 26 },
-    { header: "History (JSON)", key: "historyJson", width: 50 }
+    { header: "PRO #", key: "trackingNumber", width: 22 },
+    { header: "CONSIGNEE", key: "receiver", width: 24 },
+    { header: "BILL OF LADING", key: "billOfLading", width: 24 },
+    { header: "CONTAINER", key: "container", width: 22 },
+    { header: "SIZE", key: "containerSize", width: 14 },
+    { header: "DESCRIPTION", key: "packageDescription", width: 30 },
+    { header: "S/L", key: "shippingLines", width: 24 },
+    { header: "CONTRACT #", key: "contractNumber", width: 24 },
+    { header: "PORT", key: "destination", width: 28 },
+    { header: "CLIENT", key: "clientName", width: 24 },
+    { header: "ENTRY #", key: "entryNumber", width: 18 },
+    { header: "DUTIES", key: "duties", width: 18 },
+    { header: "PAID", key: "paid", width: 18 },
+    { header: "SHIPPER", key: "sender", width: 24 },
+    { header: "ORIGIN", key: "origin", width: 28 },
+    { header: "WEIGHT (KG)", key: "weight", width: 14 },
+    { header: "ETA", key: "estimatedDelivery", width: 20, style: { numFmt: "yyyy-mm-dd" } },
+    { header: "STATUS", key: "status", width: 22 },
+    { header: "GATEPASS", key: "gatepass", width: 20 },
+    { header: "DELIVERY LOCATION", key: "location", width: 28 },
+    { header: "LATEST NOTE", key: "note", width: 36 },
+    { header: "CREATED AT", key: "createdAt", width: 26 },
+    { header: "LAST UPDATED", key: "updatedAt", width: 26 }
   ];
   worksheet.views = [{ state: "frozen", ySplit: 1 }];
 
@@ -293,8 +298,7 @@ app.get("/api/shipments/template", requireAdmin, async (_req, res) => {
       ...shipment,
       estimatedDelivery: shipment.estimatedDelivery ? new Date(`${shipment.estimatedDelivery}T00:00:00Z`) : "",
       location: latestEvent.location || "",
-      note: latestEvent.note || "",
-      historyJson: JSON.stringify(shipment.history || [])
+      note: latestEvent.note || ""
     });
   }
   worksheet.addRow(Array(worksheet.columns.length).fill(""));
@@ -333,10 +337,12 @@ app.post(
       const columns = new Map();
       worksheet.getRow(1).eachCell((cell, columnNumber) => {
         const key = String(cell.value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
-        if (key) columns.set(key, columnNumber);
+        if (key) columns.set(key, [...(columns.get(key) || []), columnNumber]);
       });
 
-      const missingColumns = ["origin", "destination", "estimateddelivery"].filter(column => !columns.has(column));
+      const missingColumns = ["origin"].filter(column => !columns.has(column));
+      if (!columns.has("destination") && !columns.has("port")) missingColumns.push("port");
+      if (!columns.has("eta") && !columns.has("estimateddelivery")) missingColumns.push("eta");
       if (!columns.has("shipper") && !columns.has("sender")) missingColumns.unshift("shipper");
       if (!columns.has("consignee") && !columns.has("receiver")) missingColumns.unshift("consignee");
       if (missingColumns.length) {
@@ -350,11 +356,11 @@ app.post(
       let skipped = 0;
       for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
         const row = worksheet.getRow(rowNumber);
-        const getValue = key => {
-          const columnNumber = columns.get(key);
+        const getValue = (key, occurrence = 0) => {
+          const columnNumber = columns.get(key)?.[occurrence];
           return columnNumber ? excelCellValue(row.getCell(columnNumber).value) : undefined;
         };
-        const values = [...columns.values()].map(columnNumber => row.getCell(columnNumber).value);
+        const values = [...columns.values()].flat().map(columnNumber => row.getCell(columnNumber).value);
         if (values.every(value => value === null || value === undefined || String(value).trim() === "")) continue;
 
         const trackingNumber = String(getValue("pro") ?? getValue("trackingnumber") ?? "").trim();
@@ -374,18 +380,21 @@ app.post(
           sender: String(getValue("shipper") ?? getValue("sender") ?? "").trim(),
           receiver: String(getValue("consignee") ?? getValue("receiver") ?? "").trim(),
           contractNumber: String(getValue("contractnumber") ?? "").trim(),
-          clientName: String(getValue("clientname") ?? "").trim(),
+          clientName: String(getValue("client") ?? getValue("clientname") ?? "").trim(),
+          entryNumber: String(getValue("entry") ?? getValue("entrynumber") ?? "").trim(),
           origin: String(getValue("origin") ?? "").trim(),
-          destination: String(getValue("destination") ?? "").trim(),
-          packageDescription: String(getValue("packagedescription") ?? "").trim(),
+          destination: String(getValue("destination") ?? getValue("port") ?? "").trim(),
+          packageDescription: String(getValue("description") ?? getValue("packagedescription") ?? "").trim(),
           weight: getValue("weightkg") ?? getValue("weight") ?? 0,
-          estimatedDelivery: normalizeExcelDate(getValue("estimateddelivery"), workbook.properties.date1904),
+          containerSize: String(getValue("size") ?? "").trim(),
+          estimatedDelivery: normalizeExcelDate(getValue("eta") ?? getValue("estimateddelivery"), workbook.properties.date1904),
           status: String(getValue("status") ?? "").trim() || "Shipment Created",
-          location: String(getValue("currentlocation") ?? "").trim(),
-          note: String(getValue("note") ?? "").trim(),
+          location: String(getValue("deliverylocation") ?? getValue("currentlocation") ?? "").trim(),
+          note: String(getValue("latestnote") ?? getValue("note") ?? "").trim(),
           duties: String(getValue("duties") ?? "").trim(),
+          paid: String(getValue("paid") ?? "").trim(),
           gatepass: String(getValue("gatepass") ?? getValue("gatepassed") ?? "").trim(),
-          shippingLines: String(getValue("shippinglines") ?? getValue("shippingline") ?? "").trim(),
+          shippingLines: String(getValue("shippinglines") ?? getValue("shippingline") ?? getValue("sl") ?? "").trim(),
           container: String(getValue("container") ?? "").trim(),
           billOfLading: String(getValue("billoflading") ?? getValue("billofladingnumber") ?? "").trim()
         };
@@ -394,7 +403,7 @@ app.post(
           if (!input[field]) return res.status(400).json({ message: `Row ${rowNumber}: ${field} is required.` });
         }
         if (!isValidISODate(input.estimatedDelivery)) {
-          return res.status(400).json({ message: `Row ${rowNumber}: Estimated Delivery must be a valid date.` });
+          return res.status(400).json({ message: `Row ${rowNumber}: ETA must be a valid date.` });
         }
         input.weight = Number(input.weight);
         if (!Number.isFinite(input.weight) || input.weight < 0) {
@@ -425,8 +434,8 @@ app.post(
 app.post("/api/shipments", requireAdmin, async (req, res) => {
   const {
     sender, receiver, origin, destination, packageDescription,
-    weight, estimatedDelivery, duties, gatepass, shippingLines, container,
-    billOfLading, trackingNumber, contractNumber, clientName
+    weight, estimatedDelivery, duties, paid, gatepass, shippingLines, container,
+    containerSize, billOfLading, trackingNumber, contractNumber, clientName, entryNumber
   } = req.body;
 
   if (!sender || !receiver || !origin || !destination || !estimatedDelivery) {
@@ -452,7 +461,10 @@ app.post("/api/shipments", requireAdmin, async (req, res) => {
     billOfLading,
     trackingNumber,
     contractNumber,
-    clientName
+    clientName,
+    entryNumber,
+    containerSize,
+    paid
   }, shipments);
 
   shipments.push(shipment);
@@ -482,7 +494,7 @@ app.patch("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
     return res.status(400).json({ message: "Tracking number, sender, receiver, origin, destination, and delivery date are required." });
   }
   if (!isValidISODate(estimatedDelivery)) {
-    return res.status(400).json({ message: "Estimated Delivery must be a valid date." });
+    return res.status(400).json({ message: "ETA must be a valid date." });
   }
   if (!Number.isFinite(weight) || weight < 0) {
     return res.status(400).json({ message: "Weight must be a non-negative number." });
@@ -497,6 +509,7 @@ app.patch("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
   const previousStatus = shipment.status;
   const location = textValue("location");
   const note = textValue("note");
+  const editLatest = req.body.editLatest === true;
   Object.assign(shipment, {
     trackingNumber,
     sender,
@@ -507,23 +520,31 @@ app.patch("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
     weight,
     estimatedDelivery,
     duties: textValue("duties", shipment.duties),
+    paid: textValue("paid", shipment.paid),
     gatepass: textValue("gatepass", shipment.gatepass),
     shippingLines: textValue("shippingLines", shipment.shippingLines),
     container: textValue("container", shipment.container),
     billOfLading: textValue("billOfLading", shipment.billOfLading),
     contractNumber: textValue("contractNumber", shipment.contractNumber),
     clientName: textValue("clientName", shipment.clientName),
+    entryNumber: textValue("entryNumber", shipment.entryNumber),
+    containerSize: textValue("containerSize", shipment.containerSize),
     status,
     updatedAt: new Date().toISOString()
   });
 
-  if (status !== previousStatus || location || note) {
+  if (status !== previousStatus || (!editLatest && (location || note))) {
     shipment.history.push({
       status,
       location: location || destination,
       timestamp: shipment.updatedAt,
       note: note || (status !== previousStatus ? `Shipment status updated to ${status}.` : "Shipment details updated.")
     });
+  }
+  if (editLatest && shipment.history?.length) {
+    const latestEvent = shipment.history[shipment.history.length - 1];
+    if (Object.hasOwn(req.body, "location")) latestEvent.location = location;
+    if (Object.hasOwn(req.body, "latestNote")) latestEvent.note = textValue("latestNote");
   }
 
   await writeShipments(shipments);
