@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { Pool } from "pg";
+import { SHIPMENT_COLUMNS, getShipmentColumnValue } from "../src/shipmentColumns.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -135,12 +136,14 @@ function createShipment(input, shipments) {
     receiver: input.receiver,
     contractNumber: input.contractNumber || "",
     clientName: input.clientName || "",
-    entryNumber: input.entryNumber || "",
     origin: input.origin,
     destination: input.destination,
     packageDescription: input.packageDescription || "General Cargo",
     weight: Number(input.weight) || 0,
-    containerSize: input.containerSize || "",
+    size: input.size || "",
+    port: input.port || "",
+    original: input.original || "",
+    entryNumber: input.entryNumber || input.original || "",
     estimatedDelivery: input.estimatedDelivery,
     duties: input.duties || "",
     paid: input.paid || "",
@@ -199,6 +202,15 @@ function excelCellValue(value) {
   return value;
 }
 
+function excelTrackingNumber(cell) {
+  const value = excelCellValue(cell?.value);
+  const zeroFormat = String(cell?.numFmt || "").split(";")[0].split(".")[0];
+  if (typeof value === "number" && Number.isFinite(value) && /^0+$/.test(zeroFormat)) {
+    return String(Math.trunc(value)).padStart(zeroFormat.length, "0");
+  }
+  return String(value ?? "").trim();
+}
+
 const app = express();
 app.set("trust proxy", 1);
 if (process.env.NODE_ENV !== "production") app.use(cors());
@@ -224,6 +236,7 @@ function publicShipment(shipment) {
     trackingNumber: shipment.trackingNumber,
     origin: shipment.origin,
     destination: shipment.destination,
+    port: shipment.port || "",
     status: shipment.status,
     estimatedDelivery: shipment.estimatedDelivery,
     updatedAt: shipment.updatedAt,
@@ -261,55 +274,51 @@ app.get("/api/shipments", requireAdmin, async (_req, res) => {
   res.json(shipments);
 });
 
-app.get("/api/shipments/template", requireAdmin, async (_req, res) => {
+async function createShipmentWorkbook(shipments) {
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Shipments");
-  worksheet.columns = [
-    { header: "PRO #", key: "trackingNumber", width: 22 },
-    { header: "CONSIGNEE", key: "receiver", width: 24 },
-    { header: "BILL OF LADING", key: "billOfLading", width: 24 },
-    { header: "CONTAINER", key: "container", width: 22 },
-    { header: "SIZE", key: "containerSize", width: 14 },
-    { header: "DESCRIPTION", key: "packageDescription", width: 30 },
-    { header: "S/L", key: "shippingLines", width: 24 },
-    { header: "CONTRACT #", key: "contractNumber", width: 24 },
-    { header: "PORT", key: "destination", width: 28 },
-    { header: "CLIENT", key: "clientName", width: 24 },
-    { header: "ENTRY #", key: "entryNumber", width: 18 },
-    { header: "DUTIES", key: "duties", width: 18 },
-    { header: "PAID", key: "paid", width: 18 },
-    { header: "SHIPPER", key: "sender", width: 24 },
-    { header: "ORIGIN", key: "origin", width: 28 },
-    { header: "WEIGHT (KG)", key: "weight", width: 14 },
-    { header: "ETA", key: "estimatedDelivery", width: 20, style: { numFmt: "yyyy-mm-dd" } },
-    { header: "STATUS", key: "status", width: 22 },
-    { header: "GATEPASS", key: "gatepass", width: 20 },
-    { header: "DELIVERY LOCATION", key: "location", width: 28 },
-    { header: "LATEST NOTE", key: "note", width: 36 },
-    { header: "CREATED AT", key: "createdAt", width: 26 },
-    { header: "LAST UPDATED", key: "updatedAt", width: 26 }
-  ];
-  worksheet.views = [{ state: "frozen", ySplit: 1 }];
+  workbook.creator = "JART ENTERPRISE";
+  const worksheet = workbook.addWorksheet("ALL IN");
+  worksheet.columns = SHIPMENT_COLUMNS.map(column => ({
+    header: column.header,
+    key: column.key,
+    width: column.width,
+    style: column.type === "date" ? { numFmt: "yyyy-mm-dd" } :
+      column.type === "dateTime" ? { numFmt: "yyyy-mm-dd hh:mm" } : undefined
+  }));
+  worksheet.views = [{ state: "frozen", xSplit: 2, ySplit: 1 }];
 
-  const shipments = (await readShipments()).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   for (const shipment of shipments) {
-    const latestEvent = shipment.history?.[shipment.history.length - 1] || {};
-    worksheet.addRow({
-      ...shipment,
-      estimatedDelivery: shipment.estimatedDelivery ? new Date(`${shipment.estimatedDelivery}T00:00:00Z`) : "",
-      location: latestEvent.location || "",
-      note: latestEvent.note || ""
-    });
+    const values = Object.fromEntries(SHIPMENT_COLUMNS.map(column => {
+      let value = getShipmentColumnValue(shipment, column);
+      if (column.type && value) {
+        const date = new Date(value);
+        value = Number.isNaN(date.getTime()) ? String(value) : date;
+      }
+      return [column.key, value];
+    }));
+    worksheet.addRow(values);
   }
-  worksheet.addRow(Array(worksheet.columns.length).fill(""));
-  worksheet.autoFilter = `A1:${worksheet.getColumn(worksheet.columns.length).letter}${worksheet.rowCount}`;
+
+  worksheet.autoFilter = `A1:${worksheet.getColumn(worksheet.columns.length).letter}${Math.max(1, worksheet.rowCount)}`;
   worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
   worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF047857" } };
+  worksheet.getRow(1).height = 24;
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
 
-  const buffer = await workbook.xlsx.writeBuffer();
+function sendShipmentWorkbook(res, buffer, filename) {
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  res.setHeader("Content-Disposition", "attachment; filename=jart-shipment-records.xlsx");
-  res.send(Buffer.from(buffer));
+  res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+  res.send(buffer);
+}
+
+app.get("/api/shipments/template", requireAdmin, async (_req, res) => {
+  sendShipmentWorkbook(res, await createShipmentWorkbook([]), "jart-shipment-records-template.xlsx");
+});
+
+app.get("/api/shipments/export", requireAdmin, async (_req, res) => {
+  const shipments = (await readShipments()).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  sendShipmentWorkbook(res, await createShipmentWorkbook(shipments), "jart-shipment-records.xlsx");
 });
 
 app.get("/api/shipments/:trackingNumber", async (req, res) => {
@@ -331,7 +340,17 @@ app.post(
     try {
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(req.body);
-      const worksheet = workbook.worksheets[0];
+      const worksheet = workbook.worksheets.find(candidate => {
+        const headers = new Set();
+        candidate.getRow(1).eachCell(cell => {
+          const key = String(cell.value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+          if (key) headers.add(key);
+        });
+        const templateHeaders = (headers.has("pro") || headers.has("prono")) &&
+          (headers.has("consignee") || headers.has("receiver"));
+        const standardHeaders = headers.has("origin") && headers.has("destination") && headers.has("estimateddelivery");
+        return candidate.rowCount > 1 && (templateHeaders || standardHeaders);
+      }) || workbook.worksheets[0];
       if (!worksheet) return res.status(400).json({ message: "The workbook has no worksheets." });
 
       const columns = new Map();
@@ -340,11 +359,12 @@ app.post(
         if (key) columns.set(key, [...(columns.get(key) || []), columnNumber]);
       });
 
-      const missingColumns = ["origin"].filter(column => !columns.has(column));
-      if (!columns.has("destination") && !columns.has("port")) missingColumns.push("port");
-      if (!columns.has("eta") && !columns.has("estimateddelivery")) missingColumns.push("eta");
-      if (!columns.has("shipper") && !columns.has("sender")) missingColumns.unshift("shipper");
+      const isTemplateWorkbook = columns.has("pro") || columns.has("prono");
+      const missingColumns = isTemplateWorkbook
+        ? []
+        : ["origin", "destination", "estimateddelivery"].filter(column => !columns.has(column));
       if (!columns.has("consignee") && !columns.has("receiver")) missingColumns.unshift("consignee");
+      if (!isTemplateWorkbook && !columns.has("shipper") && !columns.has("sender")) missingColumns.unshift("shipper");
       if (missingColumns.length) {
         return res.status(400).json({ message: `Missing required columns: ${missingColumns.join(", ")}.` });
       }
@@ -363,7 +383,10 @@ app.post(
         const values = [...columns.values()].flat().map(columnNumber => row.getCell(columnNumber).value);
         if (values.every(value => value === null || value === undefined || String(value).trim() === "")) continue;
 
-        const trackingNumber = String(getValue("pro") ?? getValue("trackingnumber") ?? "").trim();
+        const proColumn = columns.get("pro")?.[0] ?? columns.get("prono")?.[0] ?? columns.get("pronumber")?.[0] ??
+          columns.get("trackingnumber")?.[0] ?? columns.get("trackingno")?.[0];
+        const proCell = proColumn ? row.getCell(proColumn) : null;
+        const trackingNumber = excelTrackingNumber(proCell);
         if (trackingNumber) {
           if (existingTrackingNumbers.has(trackingNumber.toUpperCase())) {
             skipped += 1;
@@ -375,35 +398,47 @@ app.post(
           pendingTrackingNumbers.add(trackingNumber.toUpperCase());
         }
 
+        const paidValue = getValue("paid");
         const input = {
           trackingNumber,
           sender: String(getValue("shipper") ?? getValue("sender") ?? "").trim(),
           receiver: String(getValue("consignee") ?? getValue("receiver") ?? "").trim(),
-          contractNumber: String(getValue("contractnumber") ?? "").trim(),
-          clientName: String(getValue("client") ?? getValue("clientname") ?? "").trim(),
-          entryNumber: String(getValue("entry") ?? getValue("entrynumber") ?? "").trim(),
+          contractNumber: String(getValue("contractnumber") ?? getValue("contract") ?? "").trim(),
+          clientName: String(getValue("clientname") ?? getValue("client") ?? "").trim(),
           origin: String(getValue("origin") ?? "").trim(),
-          destination: String(getValue("destination") ?? getValue("port") ?? "").trim(),
-          packageDescription: String(getValue("description") ?? getValue("packagedescription") ?? "").trim(),
+          destination: String(getValue("destination") ?? getValue("port", (columns.get("port")?.length || 1) - 1) ?? "").trim(),
+          packageDescription: String(getValue("packagedescription") ?? getValue("description") ?? "").trim(),
           weight: getValue("weightkg") ?? getValue("weight") ?? 0,
-          containerSize: String(getValue("size") ?? "").trim(),
           estimatedDelivery: normalizeExcelDate(getValue("eta") ?? getValue("estimateddelivery"), workbook.properties.date1904),
+          size: String(getValue("size") ?? "").trim(),
+          port: String(getValue("port", 0) ?? "").trim(),
+          entryNumber: String(getValue("entry") ?? getValue("entrynumber") ?? normalizeExcelDate(getValue("original"), workbook.properties.date1904)).trim(),
+          original: normalizeExcelDate(getValue("original"), workbook.properties.date1904),
+          paid: paidValue instanceof Date ? normalizeExcelDate(paidValue, workbook.properties.date1904) : String(paidValue ?? "").trim(),
           status: String(getValue("status") ?? "").trim() || "Shipment Created",
           location: String(getValue("deliverylocation") ?? getValue("currentlocation") ?? "").trim(),
           note: String(getValue("latestnote") ?? getValue("note") ?? "").trim(),
           duties: String(getValue("duties") ?? "").trim(),
-          paid: String(getValue("paid") ?? "").trim(),
           gatepass: String(getValue("gatepass") ?? getValue("gatepassed") ?? "").trim(),
           shippingLines: String(getValue("shippinglines") ?? getValue("shippingline") ?? getValue("sl") ?? "").trim(),
           container: String(getValue("container") ?? "").trim(),
           billOfLading: String(getValue("billoflading") ?? getValue("billofladingnumber") ?? "").trim()
         };
 
-        for (const field of ["sender", "receiver", "origin", "destination", "estimatedDelivery"]) {
-          if (!input[field]) return res.status(400).json({ message: `Row ${rowNumber}: ${field} is required.` });
+        if (isTemplateWorkbook) {
+          if (![input.receiver, input.billOfLading, input.container, input.packageDescription].some(Boolean)) {
+            return res.status(400).json({ message: `Row ${rowNumber}: add a consignee, bill of lading, container, or description.` });
+          }
+        } else {
+          for (const field of ["sender", "receiver", "origin", "destination", "estimatedDelivery"]) {
+            if (!input[field]) return res.status(400).json({ message: `Row ${rowNumber}: ${field} is required.` });
+          }
         }
-        if (!isValidISODate(input.estimatedDelivery)) {
+        if (input.estimatedDelivery && !isValidISODate(input.estimatedDelivery)) {
           return res.status(400).json({ message: `Row ${rowNumber}: ETA must be a valid date.` });
+        }
+        if (input.original && !isValidISODate(input.original)) {
+          return res.status(400).json({ message: `Row ${rowNumber}: Original must be a valid date.` });
         }
         input.weight = Number(input.weight);
         if (!Number.isFinite(input.weight) || input.weight < 0) {
@@ -434,8 +469,8 @@ app.post(
 app.post("/api/shipments", requireAdmin, async (req, res) => {
   const {
     sender, receiver, origin, destination, packageDescription,
-    weight, estimatedDelivery, duties, paid, gatepass, shippingLines, container,
-    containerSize, billOfLading, trackingNumber, contractNumber, clientName, entryNumber
+    weight, estimatedDelivery, size, port, original, paid, duties, gatepass, shippingLines, container,
+    billOfLading, trackingNumber, contractNumber, clientName, entryNumber
   } = req.body;
 
   if (!sender || !receiver || !origin || !destination || !estimatedDelivery) {
@@ -454,6 +489,10 @@ app.post("/api/shipments", requireAdmin, async (req, res) => {
     packageDescription,
     weight,
     estimatedDelivery,
+    size,
+    port,
+    original,
+    paid,
     duties,
     gatepass,
     shippingLines,
@@ -462,9 +501,7 @@ app.post("/api/shipments", requireAdmin, async (req, res) => {
     trackingNumber,
     contractNumber,
     clientName,
-    entryNumber,
-    containerSize,
-    paid
+    entryNumber
   }, shipments);
 
   shipments.push(shipment);
@@ -519,6 +556,10 @@ app.patch("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
     packageDescription: textValue("packageDescription", shipment.packageDescription || "General Cargo") || "General Cargo",
     weight,
     estimatedDelivery,
+    size: textValue("size", shipment.size),
+    port: textValue("port", shipment.port),
+    original: textValue("original", shipment.original),
+    entryNumber: textValue("entryNumber", shipment.entryNumber || shipment.original),
     duties: textValue("duties", shipment.duties),
     paid: textValue("paid", shipment.paid),
     gatepass: textValue("gatepass", shipment.gatepass),
@@ -527,8 +568,6 @@ app.patch("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {
     billOfLading: textValue("billOfLading", shipment.billOfLading),
     contractNumber: textValue("contractNumber", shipment.contractNumber),
     clientName: textValue("clientName", shipment.clientName),
-    entryNumber: textValue("entryNumber", shipment.entryNumber),
-    containerSize: textValue("containerSize", shipment.containerSize),
     status,
     updatedAt: new Date().toISOString()
   });
@@ -578,6 +617,24 @@ app.patch("/api/shipments/:trackingNumber/status", requireAdmin, async (req, res
 
   await writeShipments(shipments);
   res.json(shipments[index]);
+});
+
+app.delete("/api/shipments/bulk", requireAdmin, async (req, res) => {
+  const deleteAll = req.body?.all === true;
+  const requestedTrackingNumbers = req.body?.trackingNumbers;
+  if (!deleteAll && (!Array.isArray(requestedTrackingNumbers) || requestedTrackingNumbers.length === 0)) {
+    return res.status(400).json({ message: "Select at least one shipment to delete." });
+  }
+
+  const shipments = await readShipments();
+  const trackingNumbers = new Set((requestedTrackingNumbers || []).map(value => String(value).trim().toUpperCase()));
+  const remaining = deleteAll
+    ? []
+    : shipments.filter(shipment => !trackingNumbers.has(shipment.trackingNumber.toUpperCase()));
+  const deleted = shipments.length - remaining.length;
+
+  if (deleted) await writeShipments(remaining);
+  res.json({ deleted });
 });
 
 app.delete("/api/shipments/:trackingNumber", requireAdmin, async (req, res) => {

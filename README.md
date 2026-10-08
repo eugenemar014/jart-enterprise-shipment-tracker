@@ -37,6 +37,11 @@ http://localhost:4000
 - Editable spreadsheet view with PRO sorting
 - Excel import/export using the shipment-record template columns
 - Delete shipment
+- Delete one or multiple selected shipments, or delete all shipments with confirmation
+- Track template fields for PRO, consignee, bill of lading, container, size, description, shipping line, contract, ports, client, entry number, duties, paid, shipper, origin, weight, ETA, status, gatepass, delivery location, notes, and timestamps
+- Import the shipment-record template or a standard shipment workbook
+- View all shipment columns in the dashboard and spreadsheet view
+- Download a blank Excel import template or export all current shipments to Excel
 - Responsive desktop/tablet/mobile layout
 - Local JSON persistence in `server/data/shipments.json`
 
