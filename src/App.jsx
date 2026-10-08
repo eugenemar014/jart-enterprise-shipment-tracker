@@ -378,12 +378,19 @@ function ShipmentSpreadsheetModal({ shipments, onClose, onUpdated }) {
   const [errors, setErrors] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
+  const [proSortDirection, setProSortDirection] = useState("none");
 
   const visibleShipments = shipments.filter(shipment =>
     !appliedSearch || SHIPMENT_COLUMNS.some(column =>
       String(getShipmentColumnValue(shipment, column)).toLowerCase().includes(appliedSearch.toLowerCase())
     )
   );
+  if (proSortDirection !== "none") {
+    visibleShipments.sort((left, right) => {
+      const order = String(left.trackingNumber).localeCompare(String(right.trackingNumber), undefined, { numeric: true, sensitivity: "base" });
+      return proSortDirection === "ascending" ? order : -order;
+    });
+  }
 
   function currentValue(shipment, column) {
     const edited = edits[shipment.id] || {};
@@ -462,6 +469,13 @@ function ShipmentSpreadsheetModal({ shipments, onClose, onUpdated }) {
             <button className="button secondary" type="submit"><Search size={15}/> Search</button>
             {appliedSearch && <button className="button secondary" type="button" onClick={() => { setSearchQuery(""); setAppliedSearch(""); }}>Clear</button>}
           </form>
+          <button
+            className="button secondary sort-button"
+            onClick={() => setProSortDirection(previous => previous === "ascending" ? "descending" : "ascending")}
+            aria-label="Sort spreadsheet by PRO number"
+          >
+            {proSortDirection === "none" ? "Sort by PRO" : proSortDirection === "ascending" ? "PRO: A–Z" : "PRO: Z–A"}
+          </button>
           <div className="spreadsheet-downloads">
             <a href="#" onClick={downloadExport}><Download size={15}/> Download all shipments</a>
             <a href="#" onClick={downloadTemplate}><FileSpreadsheet size={15}/> Blank import template</a>
