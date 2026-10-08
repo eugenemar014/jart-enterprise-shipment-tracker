@@ -7,7 +7,6 @@ export const SHIPMENT_COLUMNS = [
   { key: "packageDescription", header: "DESCRIPTION", width: 32 },
   { key: "shippingLines", header: "S/L", width: 22 },
   { key: "contractNumber", header: "CONTRACT #", width: 24 },
-  { key: "port", header: "PORT", width: 18 },
   { key: "clientName", header: "CLIENT", width: 24 },
   { key: "entryNumber", header: "ENTRY #", width: 18 },
   { key: "duties", header: "DUTIES", width: 18 },

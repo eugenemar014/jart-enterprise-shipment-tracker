@@ -105,7 +105,7 @@ function CreateShipment({ onClose, onCreated }) {
   const [form, setForm] = useState({
     sender: "", receiver: "", origin: "", destination: "",
     packageDescription: "", weight: "", estimatedDelivery: "",
-    size: "", port: "", paid: "", entryNumber: "",
+    size: "", paid: "", entryNumber: "",
     duties: "", gatepass: "", shippingLines: "", container: "",
     billOfLading: "", trackingNumber: "", contractNumber: "", clientName: ""
   });
@@ -146,7 +146,6 @@ function CreateShipment({ onClose, onCreated }) {
           <label>Entry #<input name="entryNumber" value={form.entryNumber} onChange={update} /></label>
           <label>Origin *<input name="origin" value={form.origin} onChange={update} required placeholder="e.g. Manila Warehouse" /></label>
           <label>Port *<input name="destination" value={form.destination} onChange={update} required placeholder="e.g. Cebu City" /></label>
-          <label>Origin Port<input name="port" value={form.port} onChange={update} placeholder="Port of origin" /></label>
           <label>Description<input name="packageDescription" value={form.packageDescription} onChange={update} placeholder="Documents, equipment, cargo..." /></label>
           <label>Weight (kg)<input type="number" min="0" step="0.01" name="weight" value={form.weight} onChange={update} placeholder="0.00" /></label>
           <label>Size<input name="size" value={form.size} onChange={update} placeholder="e.g. 1X40" /></label>
@@ -180,7 +179,6 @@ function EditShipmentModal({ shipment, onClose, onUpdated }) {
     weight: shipment.weight ?? 0,
     size: shipment.size || shipment.containerSize || "",
     estimatedDelivery: shipment.estimatedDelivery,
-    port: shipment.port || "",
     original: shipment.original || "",
     entryNumber: shipment.entryNumber || shipment.original || "",
     duties: shipment.duties || "",
@@ -237,7 +235,6 @@ function EditShipmentModal({ shipment, onClose, onUpdated }) {
           <label>Description<input name="packageDescription" value={form.packageDescription} onChange={update} /></label>
           <label>Weight (kg)<input type="number" min="0" step="0.01" name="weight" value={form.weight} onChange={update} /></label>
           <label>Size<input name="size" value={form.size} onChange={update} /></label>
-          <label>Origin Port<input name="port" value={form.port} onChange={update} /></label>
           <label>ETA *<input type="date" name="estimatedDelivery" value={form.estimatedDelivery} onChange={update} required /></label>
           <label>Duties<input name="duties" value={form.duties} onChange={update} /></label>
           <label>Paid<input name="paid" value={form.paid} onChange={update} /></label>

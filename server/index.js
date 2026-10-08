@@ -411,7 +411,6 @@ app.post(
           weight: getValue("weightkg") ?? getValue("weight") ?? 0,
           estimatedDelivery: normalizeExcelDate(getValue("eta") ?? getValue("estimateddelivery"), workbook.properties.date1904),
           size: String(getValue("size") ?? "").trim(),
-          port: String(getValue("port", 0) ?? "").trim(),
           entryNumber: String(getValue("entry") ?? getValue("entrynumber") ?? normalizeExcelDate(getValue("original"), workbook.properties.date1904)).trim(),
           original: normalizeExcelDate(getValue("original"), workbook.properties.date1904),
           paid: paidValue instanceof Date ? normalizeExcelDate(paidValue, workbook.properties.date1904) : String(paidValue ?? "").trim(),
