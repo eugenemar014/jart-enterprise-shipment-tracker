@@ -352,7 +352,7 @@ function TrackingResult({ shipment, onClose }) {
   );
 }
 
-function ShipmentViewModal({ shipment, onClose }) {
+function ShipmentViewModal({ shipment, onClose, onEdit }) {
   const fields = [
     { key: "status", label: "STATUS", value: shipment.status || "" },
     ...SHIPMENT_COLUMNS
@@ -385,6 +385,7 @@ function ShipmentViewModal({ shipment, onClose }) {
         </div>
       ) : <p className="form-hint">No status history recorded.</p>}
       <div className="modal-actions">
+        <button className="button primary" onClick={onEdit}><Edit3 size={16}/> Edit Shipment</button>
         <button className="button secondary" onClick={onClose}>Close</button>
       </div>
     </Modal>
@@ -864,7 +865,7 @@ function App() {
       </main>
 
       {modal === "create" && <CreateShipment onClose={() => setModal(null)} onCreated={created}/>}
-      {modal?.type === "view" && <ShipmentViewModal shipment={modal.shipment} onClose={() => setModal(null)}/>}
+      {modal?.type === "view" && <ShipmentViewModal shipment={modal.shipment} onClose={() => setModal(null)} onEdit={() => setModal({ type: "edit", shipment: modal.shipment })}/>}
       {modal?.type === "spreadsheet" && <ShipmentSpreadsheetModal shipments={shipments} onClose={() => setModal(null)} onUpdated={updated}/>}
       {modal?.type === "edit" && <EditShipmentModal shipment={modal.shipment} onClose={() => setModal(null)} onUpdated={updated}/>}
       {modal === "import" && <ExcelImport onClose={() => setModal(null)} onImported={imported}/>}
