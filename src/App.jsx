@@ -353,18 +353,37 @@ function TrackingResult({ shipment, onClose }) {
 }
 
 function ShipmentViewModal({ shipment, onClose }) {
-  const fields = SHIPMENT_COLUMNS
+  const fields = [
+    { key: "status", label: "STATUS", value: shipment.status || "" },
+    ...SHIPMENT_COLUMNS
     .map(column => ({
       key: column.key,
       label: column.header,
       value: displayColumnValue(shipment, column)
-    }));
+    })),
+    { key: "id", label: "RECORD ID", value: shipment.id || "" }
+  ];
 
   return (
     <Modal title={`Shipment ${shipment.trackingNumber}`} onClose={onClose} wide>
       <div className="details-grid full-shipment-details">
         {fields.map(({ key, label, value }) => <div key={key}><span>{label}</span><strong>{value || "—"}</strong></div>)}
       </div>
+      <h3 className="section-title">Complete Status History</h3>
+      {shipment.history?.length ? (
+        <div className="timeline">
+          {[...shipment.history].reverse().map((item, index) => (
+            <div className="timeline-item" key={`${item.timestamp}-${index}`}>
+              <div className="timeline-dot"><CheckCircle2 size={14}/></div>
+              <div className="timeline-content">
+                <div className="timeline-heading"><strong>{item.status}</strong><span>{formatDate(item.timestamp)}</span></div>
+                <div className="timeline-location"><MapPin size={14}/> {item.location || "—"}</div>
+                <p>{item.note || "—"}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : <p className="form-hint">No status history recorded.</p>}
       <div className="modal-actions">
         <button className="button secondary" onClick={onClose}>Close</button>
       </div>
@@ -822,7 +841,7 @@ function App() {
                     <td className="selection-cell"><input className="selection-checkbox" type="checkbox" aria-label={`Select ${s.trackingNumber}`} checked={selectedShipmentIds.includes(s.id)} onChange={event => toggleShipmentSelection(s.id, event.target.checked)}/></td>
                     {SHIPMENT_COLUMNS.map(column => (
                       <td key={column.key}>
-                        {column.key === "trackingNumber" ? <button className="tracking-link" onClick={() => setTracking(s)}>{displayColumnValue(s, column)}</button> :
+                        {column.key === "trackingNumber" ? <button className="tracking-link" title="View full shipment" aria-label={`View full shipment ${s.trackingNumber}`} onClick={() => setModal({ type: "view", shipment: s })}>{displayColumnValue(s, column)}</button> :
                           column.key === "status" ? <StatusBadge status={s.status}/> : displayColumnValue(s, column)}
                       </td>
                     ))}

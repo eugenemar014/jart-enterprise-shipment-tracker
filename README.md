@@ -33,6 +33,7 @@ http://localhost:4000
 - Public tracking search
 - Shipment details
 - Shipment history timeline
+- Open the complete shipment record and status history by selecting its PRO # in the shipment list
 - Update shipment status
 - Editable spreadsheet view with PRO sorting
 - Excel import/export using the shipment-record template columns
